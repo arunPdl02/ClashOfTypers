@@ -1,4 +1,4 @@
-# Cewntral game server. Manages connections, lock states, scores
+# game server. manages connections, lock states, scores
 # Author: Arun
 
 # server.py
