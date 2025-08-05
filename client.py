@@ -86,15 +86,16 @@ def render_detailed_scoreboard(total_points, remaining_locks, total_locks, remai
     stats_rect = pygame.Rect(HUD_PADDING, HUD_VERT_OFFSET + HUD_HEIGHT + 5, SCREEN_WIDTH - (2 * HUD_PADDING), 30)
     pygame.draw.rect(screen, colors["hud_backdrop"], stats_rect)  # Use red background like main HUD
     
-    # Progress text - positioned to the right of progress bar
+    # Progress text - positioned at top of stats bar
     progress_text = f"Progress: {total_locks - remaining_locks}/{total_locks}"
     progress_surface = small_font.render(progress_text, True, colors["hud_text"])
-    progress_text_rect = progress_surface.get_rect(midleft=(HUD_PADDING + 120, stats_rect.centery))  # Move text to the right
+    progress_text_rect = progress_surface.get_rect(midleft=(HUD_PADDING + 10, stats_rect.top + 8))
     screen.blit(progress_surface, progress_text_rect)
     
-    # Progress bar for locks - draw after text to avoid overlap
-    progress_width = (SCREEN_WIDTH - (2 * HUD_PADDING) - 20) * (remaining_locks / total_locks)
-    progress_rect = pygame.Rect(HUD_PADDING + 10, stats_rect.centery - 3, progress_width, 6)
+    # Progress bar for locks - shows COMPLETED progress (fills up as you break locks)
+    completed_locks = total_locks - remaining_locks
+    progress_width = (SCREEN_WIDTH - (2 * HUD_PADDING) - 20) * (completed_locks / total_locks)
+    progress_rect = pygame.Rect(HUD_PADDING + 10, stats_rect.bottom - 8, progress_width, 4)
     pygame.draw.rect(screen, colors["hud_text"], progress_rect)
 
 # render main grid
