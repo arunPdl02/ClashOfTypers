@@ -31,9 +31,10 @@ LOCK_STRING_RANGES = {
     "hard": (10, 15)
 }
 GRID_COLORS = {
-    "easy": (103, 204, 149),        # 67CC95
-    "medium": (255, 157, 0),        # FF9D00
-    "hard": (119, 82, 165),         # 7752A5
+    "easy": (0, 255, 0),            # Green - Easy
+    "medium": (255, 255, 0),        # Yellow - Medium  
+    "hard": (255, 0, 0),            # Red - Hard
+    "finished": (128, 128, 128),    # Gray - Finished/Broken
     "border": (143, 19, 19),        # 8F1313
     "backdrop": (40, 40, 60),       # 28283C
     "lock_text": (0,0,0),

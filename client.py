@@ -42,6 +42,10 @@ lock = None
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Clash of Typers")
 font = pygame.font.SysFont(None, 28)
+small_font = pygame.font.SysFont(None, 20)
+
+# Key state tracking for better input handling
+key_states = {}
 
 # helper for hud
 def render_hud_text(hud_rect, left_text, center_text, right_text):
@@ -62,12 +66,41 @@ def render_hud_text(hud_rect, left_text, center_text, right_text):
     right_rect = right_surface.get_rect(topright=(SCREEN_WIDTH - offset, hud_rect.centery - right_surface.get_height() // 2))
     screen.blit(right_surface, right_rect)
 
-# render main grid
-def render(game, left_text, center_text, right_text, start_time):
-    # draw hud at top of screen
+# Enhanced scoreboard rendering
+def render_detailed_scoreboard(total_points, remaining_locks, total_locks, remaining_time, current_wpm=None):
+    # Main HUD
     hud_rect = pygame.Rect(HUD_PADDING, HUD_VERT_OFFSET, SCREEN_WIDTH - (2 * HUD_PADDING), HUD_HEIGHT)
     pygame.draw.rect(screen, colors["hud_backdrop"], hud_rect)
+    
+    # Enhanced HUD text with more details
+    left_text = f"Points: {total_points}"
+    center_text = f"Locks: {remaining_locks}/{total_locks}"
+    right_text = f"Time: {remaining_time}s"
+    
+    if current_wpm:
+        center_text += f" | WPM: {current_wpm}"
+    
     render_hud_text(hud_rect=hud_rect, left_text=left_text, right_text=right_text, center_text=center_text)
+    
+    # Additional stats below HUD
+    stats_rect = pygame.Rect(HUD_PADDING, HUD_VERT_OFFSET + HUD_HEIGHT + 5, SCREEN_WIDTH - (2 * HUD_PADDING), 30)
+    pygame.draw.rect(screen, colors["hud_backdrop"], stats_rect)  # Use red background like main HUD
+    
+    # Progress text - positioned to the right of progress bar
+    progress_text = f"Progress: {total_locks - remaining_locks}/{total_locks}"
+    progress_surface = small_font.render(progress_text, True, colors["hud_text"])
+    progress_text_rect = progress_surface.get_rect(midleft=(HUD_PADDING + 120, stats_rect.centery))  # Move text to the right
+    screen.blit(progress_surface, progress_text_rect)
+    
+    # Progress bar for locks - draw after text to avoid overlap
+    progress_width = (SCREEN_WIDTH - (2 * HUD_PADDING) - 20) * (remaining_locks / total_locks)
+    progress_rect = pygame.Rect(HUD_PADDING + 10, stats_rect.centery - 3, progress_width, 6)
+    pygame.draw.rect(screen, colors["hud_text"], progress_rect)
+
+# render main grid
+def render(game, left_text, center_text, right_text, start_time, total_points, remaining_locks, total_locks, remaining_time, current_wpm=None):
+    # draw enhanced hud at top of screen
+    render_detailed_scoreboard(total_points, remaining_locks, total_locks, remaining_time, current_wpm)
 
     # draw all locks
     for i in range(game.get_size()):
@@ -77,10 +110,14 @@ def render(game, left_text, center_text, right_text, start_time):
 
         # lock displacements
         x = (col * CELL_SIZE) + PADDING
-        y = (row * CELL_SIZE) + HUD_VERT_OFFSET + GRID_ROW_OFFSET + HUD_HEIGHT
+        y = (row * CELL_SIZE) + HUD_VERT_OFFSET + GRID_ROW_OFFSET + HUD_HEIGHT + 35  # +35 for stats bar
         cell = pygame.Rect(x, y, CELL_SIZE, CELL_SIZE)
 
-        pygame.draw.rect(screen, colors[lock.difficulty], cell)
+        # Show different colors for broken vs available locks
+        if lock.broken:
+            pygame.draw.rect(screen, colors["finished"], cell)  # Gray for finished
+        else:
+            pygame.draw.rect(screen, colors[lock.difficulty], cell)
         pygame.draw.rect(screen, colors["border"], cell, width=BORDER_WIDTH)
 
         # display score for 3 seconds at start of game                
@@ -104,21 +141,35 @@ def render(game, left_text, center_text, right_text, start_time):
 
 # lock break screen helper
 def render_lock_screen(lock, user_string):
-    rect_v_offset = GRID_ROWS / 2.5 * (HUD_VERT_OFFSET + GRID_ROW_OFFSET + HUD_HEIGHT)
+    rect_v_offset = GRID_ROWS / 2.5 * (HUD_VERT_OFFSET + GRID_ROW_OFFSET + HUD_HEIGHT + 35)  # +35 for stats bar
     rect_h_offset = PADDING * 1.5
-    rect_height = GRID_ROWS / 1.5 * (HUD_VERT_OFFSET + GRID_ROW_OFFSET + HUD_HEIGHT)
+    rect_height = GRID_ROWS / 1.5 * (HUD_VERT_OFFSET + GRID_ROW_OFFSET + HUD_HEIGHT + 35)
     rect_width = SCREEN_WIDTH - 3 * PADDING
 
     lock_rect = pygame.Rect(rect_h_offset, rect_v_offset, rect_width, rect_height)
     pygame.draw.rect(screen, colors["hud_backdrop"], lock_rect)
 
+    # Target string to type
     target_surface = font.render(lock.lock_string, True, colors["hud_text"])
     target_rect = target_surface.get_rect(midtop=(lock_rect.centerx, lock_rect.top + 30))
     screen.blit(target_surface, target_rect)
 
+    # User typed string
     typed_surface = font.render(user_string, True, colors["hud_text"])
     typed_rect = typed_surface.get_rect(midtop=(lock_rect.centerx, target_rect.bottom + 40))
     screen.blit(typed_surface, typed_rect)
+    
+    # WPM target display
+    wpm_text = f"Target WPM: {lock.wpm_target}"
+    wpm_surface = small_font.render(wpm_text, True, colors["hud_text"])
+    wpm_rect = wpm_surface.get_rect(midtop=(lock_rect.centerx, typed_rect.bottom + 20))
+    screen.blit(wpm_surface, wpm_rect)
+    
+    # Instructions
+    instruction_text = "Type the string above and press ENTER to submit"
+    instruction_surface = small_font.render(instruction_text, True, colors["hud_text"])
+    instruction_rect = instruction_surface.get_rect(midtop=(lock_rect.centerx, wpm_rect.bottom + 20))
+    screen.blit(instruction_surface, instruction_rect)
 
 # return lock object when clicking on a particular lock (else return None)
 def detect_click(game, event):
@@ -129,7 +180,7 @@ def detect_click(game, event):
         col = i % GRID_COLS
 
         x = (col * CELL_SIZE) + PADDING
-        y = (row * CELL_SIZE) + HUD_HEIGHT + HUD_VERT_OFFSET + GRID_ROW_OFFSET
+        y = (row * CELL_SIZE) + HUD_HEIGHT + HUD_VERT_OFFSET + GRID_ROW_OFFSET + 35  # +35 for stats bar
 
         if x <= mouse_x < x + CELL_SIZE and y <= mouse_y < y + CELL_SIZE:
             lock = game.get_lock(i)
@@ -137,6 +188,37 @@ def detect_click(game, event):
             return lock
 
     return None
+
+# Improved input handling to prevent key holding issues
+def handle_typing_input(event, user_string, wpm_calculator=None):
+    global key_states
+    
+    if event.type == pygame.KEYDOWN:
+        key = event.key
+        
+        # Handle ENTER immediately (don't track it)
+        if key == pygame.K_RETURN:
+            return user_string, "SUBMIT"
+        
+        # Track other key presses
+        if key not in key_states:
+            key_states[key] = True
+            
+            if key == pygame.K_BACKSPACE:
+                return user_string[:-1], "CONTINUE"
+            elif event.unicode.isprintable():
+                # Record keystroke for WPM calculation
+                if wpm_calculator:
+                    wpm_calculator.record_keystroke(event.unicode)
+                return user_string + event.unicode, "CONTINUE"
+    
+    elif event.type == pygame.KEYUP:
+        key = event.key
+        # Don't track ENTER release
+        if key != pygame.K_RETURN and key in key_states:
+            del key_states[key]
+    
+    return user_string, "CONTINUE"
 
 # start new game
 def start_game():
@@ -153,6 +235,8 @@ def start_game():
     remaining_locks = size
 
     user_string = ""
+    current_wpm = None
+    wpm_calculator = WPMCalculator()
     
     # while game timer has not finished
     while remaining_time != 0 :
@@ -163,11 +247,9 @@ def start_game():
         screen.fill(colors['backdrop'])
         remaining_time = countdown_timer(start_ticks=start_time, total_seconds=GAME_TIME)
 
-        left_text=f"Points: {total_points}" 
-        center_text=f"Locks: {remaining_locks}/{total_locks}"
-        right_text=f"Time: {remaining_time}s"
-        
-        render(game=game, left_text=left_text, right_text=right_text, center_text=center_text, start_time=start_time)
+        render(game=game, left_text="", right_text="", center_text="", start_time=start_time, 
+               total_points=total_points, remaining_locks=remaining_locks, total_locks=total_locks, 
+               remaining_time=remaining_time, current_wpm=current_wpm)
 
         # event parsing per tick
         for event in pygame.event.get():
@@ -176,51 +258,29 @@ def start_game():
 
             # breaking a lock
             if showing_lock_screen:
-                if event.type == pygame.KEYDOWN:
-                    # once user releases enter key in lock break creen (submit string)
-                    if event.key == pygame.K_RETURN:                
-                        # TO DO: update WPM
-                        user_wpm = lock.wpm_target
+                user_string, action = handle_typing_input(event, user_string, wpm_calculator)
+                
+                if action == "SUBMIT":
+                    # Calculate actual WPM
+                    user_wpm = wpm_calculator.finish_typing()
+                    current_wpm = user_wpm
 
-                        # unlock attempt handling
-                        game.break_lock(lock=lock, user_string=user_string, user_wpm=user_wpm)
-                        '''
-                        if user_string == lock.lock_string and user_wpm >= lock.wpm_target:                     # check success locally before sending to server for string + WPM verification
-                                remaining_locks -= 1
-                                total_points += lock
-                        
-                            network.send_unlock_success(lock.lock_id, user_string, user_wpm)
-                            response = network.wait_for_message_type(MSG_LOCK_CAPTURED)
-                            
-                        else:
-                            network.send_unlock_fail(lock.lock_id)                                              # if string is invalid or WPM is unsufficient then inform server. No need for verification overhead
-                            response = network.wait_for_message_type(MSG_LOCK_REVOKED)
-                        
-                        # wait for server broadcast for grid update regardless of unlock attempt success
-                        update_response = network.wait_for_message_type(MSG_GRID_UPDATE)                    
-                        
-                        
-                        if response and update_response:                                                        # response has been receieved
-                            # if unlock is successful
-                            if response.get("type") == MSG_LOCK_CAPTURED:
-                                game = update_response.get("grid")
-                                remaining_locks -= 1
-                                total_points += response.get("points")
-                            
-                            # if unlock attempt fails
-                            elif response.get("type") == MSG_LOCK_REVOKED:
-                                game = update_response.get("grid")
-                        '''
-                        # reset lock and lock break screen for next attempt
-                        lock = None
-                        showing_lock_screen = False
-                        user_string = ""
-
-                    # delete char handling for lock break screen
-                    elif event.key == pygame.K_BACKSPACE:
-                        user_string = user_string[:-1]
-                    elif event.unicode.isprintable():
-                        user_string += event.unicode
+                    # unlock attempt handling
+                    success, points = game.break_lock(lock=lock, user_string=user_string, user_wpm=user_wpm)
+                    
+                    print(f"Lock break attempt: success={success}, points={points}, user_wpm={user_wpm}")
+                    
+                    if success:
+                        remaining_locks -= 1
+                        total_points += points
+                        print(f"Lock broken! New total points: {total_points}")
+                    
+                    # reset lock and lock break screen for next attempt
+                    lock = None
+                    showing_lock_screen = False
+                    user_string = ""
+                    current_wpm = None
+                    wpm_calculator.reset()
 
             else:
                 # lock mouse click event
@@ -228,25 +288,16 @@ def start_game():
                     lock = detect_click(game=game, event=event)
                     
                     # claim lock handling
-                    if lock and game.claim_lock(user=user_id, lock=lock):                                           # check local grid first if claim is invalid (taken by other user)
-                        '''
-                        network.send_claim_request(lock.lock_id)                                                    # only make requests for valid claims to confirm validity from server
-
-                        if network.wait_for_message_type([MSG_CLAIM_ACCEPTED]).get("type") == MSG_CLAIM_ACCEPTED:   # wait for server update
-                            response = network.wait_for_message_type([MSG_GRID_UPDATE])
-                        elif network.wait_for_message_type([MSG_CLAIM_REJECTED]).get("type") == MSG_CLAIM_REJECTED:
-                            if response:
-                                game.set_grid(response.get("grid"))                                                 # update grid
-                                lock_screen_start = pygame.time.get_ticks()                                         # begin timer for lock break screen
-                                user_string = ""                                                                    # buffer for user tying input
-                                showing_lock_screen = True                                                          # display lock break screen in next iteration
-                        '''
+                    if lock and lock.available and game.claim_lock(user=user_id, lock=lock):
                         lock_screen_start = pygame.time.get_ticks() 
                         user_string = ""
                         showing_lock_screen = True 
+                        current_wpm = None
+                        wpm_calculator.start_typing()
+        
         # lock break rendering call with user typed input
         if showing_lock_screen:
-            if (pygame.time.get_ticks() - lock_screen_start) // 1000 < 10:                                          # quit screen after user get's 10 seconds
+            if (pygame.time.get_ticks() - lock_screen_start) // 1000 < 10:
                 render_lock_screen(lock, user_string)                       
             
             # stop rendering next iteration
@@ -254,6 +305,8 @@ def start_game():
                 showing_lock_screen = False
                 user_string = ""
                 lock = None
+                current_wpm = None
+                wpm_calculator.reset()
         
         # game UI update call
         pygame.display.flip()

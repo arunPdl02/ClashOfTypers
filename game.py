@@ -37,7 +37,7 @@ class Lock:
         success = False
         
         if self.available:
-            self.available == True
+            self.available = False  # Mark as claimed
             success = True
             self.user_id = user
 
