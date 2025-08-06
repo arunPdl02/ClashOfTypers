@@ -9,17 +9,6 @@
 # 4. Show typing challenge on lock granted
 # 5. Update grid + scoreboard based on server messages
 
-# Imports
-import pygame
-from messages import *
-from game import Game
-from wpm import *
-from config import *
-from config import GRID_COLORS as colors
-from utils import countdown_timer
-from networking import ClientNetworkHandler
-
-
 # Main loop:
 #     receive messages
 #     render grid
@@ -32,34 +21,36 @@ from networking import ClientNetworkHandler
 # or display claim fail screen
 # server should send updated grid (lock not available) to all clients
 
+# client_main.py
+# Clean version of client.py integrated with networking
+import pygame
+from config import *
+from config import GRID_COLORS as colors
+from utils import countdown_timer
+from game import *
+from networking import ClientNetwork
+from messages import *
 
+# game
 pygame.init()
-user_id = '779'
-lock = None
-#network = None
+clock = pygame.time.Clock()
 
-# Setup window
+# client info
+user_id = '779'
+icon = '★'
+
+# main rendering screen
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Clash of Typers")
 font = pygame.font.SysFont(None, 28)
+
 small_font = pygame.font.SysFont(None, 20)
 
 # Key state tracking for better input handling
 key_states = {}
 
-# helper for hud
-def render_hud_text(hud_rect, left_text, center_text, right_text):
-    offset = 40  # padding from edges
-
-    # Left-aligned
-    left_surface = font.render(left_text, True, colors["hud_text"])
-    left_rect = left_surface.get_rect(topleft=(offset, hud_rect.centery - left_surface.get_height() // 2))
-    screen.blit(left_surface, left_rect)
-
-    # Center-aligned
-    center_surface = font.render(center_text, True, colors["hud_text"])
-    center_rect = center_surface.get_rect(center=hud_rect.center)
-    screen.blit(center_surface, center_rect)
+# client side networking handler
+network = ClientNetwork(user_id)
 
     # Right-aligned
     right_surface = font.render(right_text, True, colors["hud_text"])
@@ -119,12 +110,10 @@ def render(game, left_text, center_text, right_text, start_time, total_points, r
             pygame.draw.rect(screen, colors["finished"], cell)  # Gray for finished
         else:
             pygame.draw.rect(screen, colors[lock.difficulty], cell)
-        pygame.draw.rect(screen, colors["border"], cell, width=BORDER_WIDTH)
 
-        # display score for 3 seconds at start of game                
-        elapsed_time = pygame.time.get_ticks() - start_time
-        fade_duration = 2000 
+        pygame.draw.rect(screen, colors["border"], cell, width=BORDER_WIDTH)
         
+
         # gradual fade per tick
         if elapsed_time < fade_duration:
             # Fade opacity
@@ -148,7 +137,20 @@ def render_lock_screen(lock, user_string):
     rect_width = SCREEN_WIDTH - 3 * PADDING
 
     lock_rect = pygame.Rect(rect_h_offset, rect_v_offset, rect_width, rect_height)
+
     pygame.draw.rect(screen, colors["hud_backdrop"], lock_rect)
+    
+    wrapped_text = wrap_text(lock.lock_string, font, lock_rect.width - 2 * padding)
+    y = lock_rect.top + 30
+    
+    for line in wrapped_text:
+        rendered = font.render(line, True, colors["hud_text"])
+        screen.blit(rendered, (lock_rect.centerx - rendered.get_width() // 2, y))
+        
+        y += rendered.get_height() + 5
+    
+    typed_surface = font.render(user_input, True, colors["hud_text"])
+    screen.blit(typed_surface, typed_surface.get_rect(midtop=(lock_rect.centerx, y + text_gap)))
 
     # Target string to type
     target_surface = font.render(lock.lock_string, True, colors["hud_text"])
@@ -172,22 +174,21 @@ def render_lock_screen(lock, user_string):
     instruction_rect = instruction_surface.get_rect(midtop=(lock_rect.centerx, wpm_rect.bottom + 20))
     screen.blit(instruction_surface, instruction_rect)
 
-# return lock object when clicking on a particular lock (else return None)
-def detect_click(game, event):
+# detect whether a user has clicked on any lock and return the appropriate lock object
+def detect_click(client, event):
     mouse_x, mouse_y = event.pos
-
-    for i in range(game.get_size()):
-        row = i // GRID_ROWS
-        col = i % GRID_COLS
-
+    
+    for lock in client.get_all_locks():
+        row = lock.lock_id // GRID_ROWS
+        col = lock.lock_id % GRID_COLS
+       
         x = (col * CELL_SIZE) + PADDING
         y = (row * CELL_SIZE) + HUD_HEIGHT + HUD_VERT_OFFSET + GRID_ROW_OFFSET + 35  # +35 for stats bar
 
         if x <= mouse_x < x + CELL_SIZE and y <= mouse_y < y + CELL_SIZE:
-            lock = game.get_lock(i)
-            print(f"Clicked lock at ({row}, {col}) → ID {i}, points = {lock.points}")
-            return lock
-
+            if not lock.broken:
+                return lock
+    
     return None
 
 # Improved input handling to prevent key holding issues
@@ -223,12 +224,11 @@ def handle_typing_input(event, user_string, wpm_calculator=None):
 
 # start new game
 def start_game():
-    #network = ClientNetworkHandler(user_id=user_id)
+    # temporary simulation of a server
+    client = LocalGameClient(GRID_ROWS, GRID_COLS, user_id, icon)
+    network.set_sim_grid(client.grid)
+    network.set_sim_players(client.players)
 
-    # Initialize client game state
-    game = Game(height=GRID_ROWS, width=GRID_COLS)
-    size = game.get_size()
-    showing_lock_screen = False
     start_time = pygame.time.get_ticks()
     remaining_time = GAME_TIME
     total_points = 0
@@ -252,12 +252,12 @@ def start_game():
                total_points=total_points, remaining_locks=remaining_locks, total_locks=total_locks, 
                remaining_time=remaining_time, current_wpm=current_wpm)
 
-        # event parsing per tick
+        # main input call loop
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return False
-
-            # breaking a lock
+            
+           # tracking keyboard inputs for lock screen
             if showing_lock_screen:
                 user_string, action = handle_typing_input(event, user_string, wpm_calculator)
                 
@@ -286,7 +286,7 @@ def start_game():
             else:
                 # lock mouse click event
                 if event.type == pygame.MOUSEBUTTONDOWN:
-                    lock = detect_click(game=game, event=event)
+                    clicked = detect_click(client, event)
                     
                     # claim lock handling
                     if lock and lock.available and game.claim_lock(user=user_id, lock=lock):
@@ -303,22 +303,38 @@ def start_game():
             
             # stop rendering next iteration
             else:
+                submit_response = True
+            
+            if submit_response:
+                dummy_wpm = 50
+                network.send_break(lock.lock_id, user_input, dummy_wpm)                     # communicate with server to validate lock break
+                waiting_for_break_result = True
+                
+                if waiting_for_break_result:
+                    result = network.get_packet(MSG_BREAK_REQ)
+                
+                    if result:
+                        client.grid.update_lock(Lock.from_dict(result.get("lock")))         # update game state based on server response (implicit update, agnostic of whether break was successful)
+                        waiting_for_break_result = False
+                
                 showing_lock_screen = False
-                user_string = ""
+                submit_response = False
+                user_input = ""
                 lock = None
                 current_wpm = None
                 wpm_calculator.reset()
         
         # game UI update call
         pygame.display.flip()
+        clock.tick(60)
 
     return False
 
+# main loop to run the application itself
+# main menu can be implemented here
 running = True
-
-# TO DO: main menu
 while running:
     running = start_game()
 
-#network.close()
+network.close()
 pygame.quit()

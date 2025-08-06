@@ -1,11 +1,5 @@
 # networking.py
 
-import socket
-import json
-import threading
-from messages import *
-from collections import deque
-
 # TCP or UDP?
 #
 # TCP should be able to handle everything and it should be used for everything that needs to be reliable, so all game state related data
@@ -89,127 +83,143 @@ from collections import deque
 #
 # next call to renderer should automatically be able to use the updated info to make relevant changes to the GUI
 
-class ClientNetworkHandler:
-    def __init__(self, server_ip='localhost', server_port=5555, user_id=None):
-        # connection set up
-        self.server_ip = server_ip
-        self.server_port = server_port
-        self.user_id = user_id
-        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((self.server_ip, self.server_port))
+import socket
+import threading
+import json
+from collections import deque
+from messages import *
 
-        # multithreading for concurrent updates                             
-        self.running = True
-        self.lock = threading.Lock()
-        self.msg_event = threading.Event()
+# using TCP
+class ClientNetwork:
+    def __init__(self, user_id, server_ip='127.0.0.1', server_port=5000):
         
-        # behaves like circular linked list to allow insertion/retrieval from both ends in O(1), but used as LIFO
-        self.buffers = {                                                            # separate buffers based on frequency
-            "grid_update": deque(),                                                 # grid_updates are "real-time" broadcasts, mainly for UI updates and so they will be hihg freq 
-            "responses": deque(),                                                   # responses holds message replies from server for the specific client
-        }                                                                           
-                                                      
-        threading.Thread(target=self._listener, daemon=True).start()
+        # multithreading
+        self.user_id = user_id
+        self.sock = socket.socket()
+        self.addr = (server_ip, server_port)
+        self.packet_stack = deque()
+        self.lock = threading.Lock()
+        self.running = True
+        
+        # connection attempt
+        try:
+            self.sock.connect(self.addr)
+            self.simulated = False
+            threading.Thread(target=self._listen, daemon=True).start()
+        except:
+            print("[networking] no server detected")
+            self.simulated = True
+            self.grid = None
+            self.players = {}
 
-    # helper to receieve messages from server
-    def _listener(self):
+    # socket active listener
+    def _listen(self):
+        buf = ""
         while self.running:
             try:
-                data = self.sock.recv(4096)                                         # assume receiving complete message
-                if not data:
-                    break
-                decoded = data.decode()
+                # convert bytes to string
+                data = self.sock.recv(1500).decode()
+                if not data:                                                            # empty string
+                    continue
+                buf += data
 
-                for raw in decoded.strip().split('\n'):                             # assume message delimiter is '\n' for parsing
-                    msg = json.loads(raw)
-                    
-                    with self.lock:
-                        msg_type = msg.get("type")
-                        if msg_type == MSG_GRID_UPDATE:
-                            self.buffers["grid_update"].append(msg)
-                        else:
-                            self.buffers["responses"].append(msg)
-                        self.msg_event.set()
+                # split string by new line
+                while '\n' in buf:
+                    line, buf = buf.split('\n', 1)
+                    try:
+                        # parse as JSON
+                        msg = json.loads(line.strip())
+                        
+                        with self.lock:                                                 # lock thread before writing
+                            self.packet_stack.append(msg)           
+                    except:
+                        continue
             except:
-                break
+                self.running = False
+    
+    # helper to send messages as JSON encoded to byte format, '\n' as delimiter
+    def _send(self, msg_type, **kwargs):
+        msg = {"type": msg_type, "user_id": self.user_id, **kwargs}
         
-    # helper for sending messages to server
-    def _send(self, message):
-        try:
-            self.sock.sendall((json.dumps(message) + '\n').encode())
-        except Exception as e:
-            print("Send failed:", e)
+        # temporary until server is made
+        if self.simulated:
+            if self.grid is not None:
+                self._simulate(msg)
+        else:
+            try:
+                self.sock.sendall((json.dumps(msg) + '\n').encode())                    # send all bytes
+            except:
+                pass
+    
+    # stand in for server
+    def _simulate(self, msg):
+        msg_type = msg.get("type")
+        uid = msg.get("user_id")
+        #print(1)
+        if uid not in self.players:
+            self.players[uid] = {"icon": "★", "score": 0, "locks_broken": 0}
+        #print(2)
+        if msg_type == MSG_CLAIM_REQ:
+            lock_id = msg.get("lock_id")
+            success = self.grid.claim_lock(lock_id, uid)
+            lock = self.grid.get_lock(lock_id)
+            self._push({"type": "claim_result", "success": success, "lock": lock.to_dict()})
+            #print(3)
+        
+        elif msg_type == MSG_BREAK_REQ:
+            lock_id = msg.get("lock_id")
+            string = msg.get("user_string")
+            wpm = msg.get("user_wpm")
+            
+            success, points = self.grid.break_lock(lock_id, string, wpm, uid)
+            
+            lock = self.grid.get_lock(lock_id)
+            
+            if success:
+                self.players[uid]["score"] += points
+                self.players[uid]["locks_broken"] += 1
+            
+            self._push({"type": "break_result", "success": success, "points": points, "lock": lock.to_dict()})
+            #print(4)
 
-    # client message types
-    def send_claim_request(self, lock_id):
-        self._send({
-            "type": MSG_CLAIM_REQ,
-            "user_id": self.user_id,
-            "lock_id": lock_id
-        })
-
-    def send_unlock_success(self, lock_id, user_string, user_wpm):
-        self._send({
-            "type": MSG_VERIFY_SUCCESS,
-            "user_id": self.user_id,
-            "lock_id": lock_id,
-            "user_wpm": user_wpm,
-            "user_string": user_string
-        })
-
-    def send_unlock_fail(self, lock_id):
-        self._send({
-            "type": MSG_INFORM_BREAKFAIL,
-            "user_id": self.user_id,
-            "lock_id": lock_id
-        })
-
-    # waits for response message and fetches latest grid update
-    def wait_for_message_type(self, expected_types, timeout=5.0):
-        self.msg_event.wait(timeout)
-
+        self._push({"type": "grid_update", "grid": self.grid.to_dict(), "players": self.players})
+        #print(5)
+    
+    # push to stack only after locking thread
+    def _push(self, msg):
         with self.lock:
-            response = None
+            self.packet_stack.append(msg)
 
-            # check if the stored response is of interest
-            if self.response_packet and self.response_packet.get("type") in expected_types:
-                response = self.response_packet
-            self.response_packet = None  # clear it
+    def set_sim_grid(self, grid):
+        self.grid = grid
 
-            # get most recent grid update, clear older
-            grid_update = self.grid_updates[-1] if self.grid_updates else None
-            self.grid_updates.clear()
+    def set_sim_players(self, players):
+        self.players = players
 
-        return response, grid_update
+    def send_claim(self, lock_id):
+        self._send(MSG_CLAIM_REQ, lock_id=lock_id)
+    
+    # should be modified to send start time, stop time and number of char inputs for server side wpm verification
+    def send_break(self, lock_id, user_string, user_wpm):
+        self._send(MSG_BREAK_REQ, lock_id=lock_id, user_string=user_string, user_wpm=user_wpm)
 
-    '''
-    Old implementation, keeping here since might modify and use the concept later
-
-    # update buffer and retrieve multiple expected packets
-    # utilizes only O(1) operations, automatically clears old packets by only keeping newer ones, retrieves partial if not all types are present  
-    def wait_for_message_type(self, expected_types, timeout=5.0):               
-        self.msg_event.wait(timeout)                                                    # update buffer, wait 5 ticks
-        temp = deque()
-        output_arr = []
-
-        with self.locks:                                                                # lock thread to prevent desynced updated of self.buffer
-        # iterate until message buffer is empty
-            while self.buffer:
-                if len(output_arr) == len(expected_types):                              # exit loop early
-                    break
+    def get_packet(self, msg_type):
+        #print(f"Getting packet of type {msg_type} from stack of size {len(self.packet_stack)}")
+        with self.lock:
+            for _ in range(len(self.packet_stack)):
+                # need to push back after pop since packets of other types might be on top
+                pkt = self.packet_stack.pop()
+                #print(pkt)
+                if pkt.get("type") == msg_type:
+                    return pkt
                 
-                msg = self.buffer.pop()                                                 # get latest message                                    
-                if msg.get("type") in expected_types:                                   
-                    output_arr.append(msg)                                              # if expected type append to output
-                else:
-                    temp.appendleft(msg)                                                # else push to front of queue to maintain order
-            
-            self.buffer.clear()                                                         # clear buffer in place
-            self.buffer.extend(temp)                                                    # append new deque 
-            
-            return output_arr
-    '''
-    # close connection
+                self.packet_stack.append(pkt)
+        
+        return None
+
     def close(self):
         self.running = False
-        self.sock.close()
+        try:
+            self.sock.close()
+        except:
+            pass
