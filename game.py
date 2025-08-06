@@ -27,8 +27,17 @@ class Lock:
         self.wpm_target = wpm_target
         self.points = points
         self.broken = False
-        self.claimed_by_user = None
-        self.broken_by_user = None
+        self.user_id = None
+    
+    # checks whether a claim can be made
+    # upon success updates internal variables to mark lock as claimed by given user
+    def attempt_claim(self, user):
+        success = False
+        
+        if self.available:
+            self.available = False  # Mark as claimed
+            success = True
+            self.user_id = user
 
     # checks whether a lock can be claimed
     # true if lock is not broken and has not been claimed by any other person
