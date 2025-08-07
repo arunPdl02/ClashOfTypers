@@ -1,0 +1,11 @@
+# Bytecode
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.env/
+
+# Editor and OS files
+*.swp
+.DS_Store
