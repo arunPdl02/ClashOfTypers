@@ -36,13 +36,11 @@ class Lock:
     
     # checks whether a claim can be made
     # upon success updates internal variables to mark lock as claimed by given user
-    def attempt_claim(self, user):
-        success = False
-        
-        if self.available:
-            self.available = False  # Mark as claimed
-            success = True
-            self.user_id = user
+    def attempt_claim(self, user_id):
+        if self.is_claimable_by(user_id):
+            self.claimed_by_user = user_id
+            return True
+        return False
 
     # checks whether a lock can be claimed
     # true if lock is not broken and has not been claimed by any other person
@@ -130,6 +128,18 @@ class Grid:
         
         if lock.is_claimable_by(player_id):
             lock.claimed_by_user = player_id
+            return True
+        
+        return False
+    
+    # release a claim on a lock if the same player requests it
+    def unclaim_lock(self, lock_id, player_id):
+        lock = self.get_lock(lock_id)
+        if not lock:
+            return False
+        
+        if not lock.broken and lock.claimed_by_user == player_id:
+            lock.claimed_by_user = None
             return True
         
         return False

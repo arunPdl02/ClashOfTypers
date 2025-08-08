@@ -7,7 +7,7 @@ import socket
 import select
 import json
 from game import Grid
-from config import GRID_ROWS, GRID_COLS
+from config import GRID_ROWS, GRID_COLS, GAME_TIME
 from messages import *
 
 # Server address
@@ -27,6 +27,8 @@ sockets_list = [server_socket]
 clients = {}  # socket -> player_id
 players = {}  # player_id -> { icon, score, locks_broken }
 buffers = {} # socket -> partial data buffer
+host_id = None
+game_started = False
 
 # Game grid
 grid = Grid(GRID_ROWS, GRID_COLS)
@@ -70,11 +72,23 @@ while True:
 
             print(f"[CONNECT] {player_id} from {client_address}")
 
-            # Send initial game state
+            # Assign host if first player
+            if host_id is None:
+                host_id = player_id
+
+            # Send initial game state for compatibility
             send(client_socket, {
                 "type": MSG_GRID_UPDATE,
                 "grid": grid.to_dict(),
                 "players": players
+            })
+
+            # Broadcast lobby update
+            broadcast({
+                "type": MSG_LOBBY_UPDATE,
+                "players": players,
+                "host_id": host_id,
+                "game_started": game_started
             })
 
         else: # message from exisiting connection (a update)
@@ -97,6 +111,10 @@ while True:
                     user_id = msg.get("user_id")
 
                     print(msg)
+                    # Ignore gameplay messages until game start
+                    if not game_started and msg_type in (MSG_CLAIM_REQ, MSG_BREAK_REQ, MSG_UNCLAIM_REQ):
+                        continue
+
                     # --- CLAIM LOCK ---
                     if msg_type == MSG_CLAIM_REQ:
                         lock_id = msg.get("lock_id")
@@ -105,7 +123,7 @@ while True:
                         
                         #private response back to the player
                         send(notified_socket, {
-                            "type": "claim_result",
+                            "type": MSG_CLAIM_RES,
                             "success": success,
                             "lock": lock.to_dict()
                         })
@@ -133,7 +151,7 @@ while True:
 
                             # send response to client
                             send(notified_socket, {
-                                "type": "break_result",
+                                "type": MSG_BREAK_RES,
                                 "success": success,
                                 "points": points,
                                 "lock": lock.to_dict()
@@ -149,6 +167,45 @@ while True:
                         except Exception as e:
                             print(f"[SERVER ERROR in BREAK_REQ] {e}")
 
+                    # --- UNCLAIM LOCK ---
+                    elif msg_type == MSG_UNCLAIM_REQ:
+                        try:
+                            lock_id = msg.get("lock_id")
+                            success = grid.unclaim_lock(lock_id, user_id)
+                            lock = grid.get_lock(lock_id)
+
+                            # send response to client
+                            send(notified_socket, {
+                                "type": MSG_UNCLAIM_RES,
+                                "success": success,
+                                "lock": lock.to_dict()
+                            })
+
+                            # broadcast updated grid
+                            broadcast({
+                                "type": MSG_GRID_UPDATE,
+                                "grid": grid.to_dict(),
+                                "players": players
+                            })
+
+                        except Exception as e:
+                            print(f"[SERVER ERROR in UNCLAIM_REQ] {e}")
+
+                    # --- START GAME REQUEST (host only) ---
+                    elif msg_type == MSG_START_REQ:
+                        # Allow only host to trigger once
+                        if not game_started and user_id == host_id:
+                            game_started = True
+                            # Announce synchronized start with a short countdown
+                            broadcast({
+                                "type": MSG_START_GAME,
+                                "countdown_seconds": 3,
+                                "game_time": GAME_TIME
+                            })
+                        else:
+                            # If non-host tries, ignore silently
+                            pass
+
 
             except Exception as e:
                 pid = clients.get(notified_socket, "Unknown")
@@ -156,13 +213,36 @@ while True:
                 sockets_list.remove(notified_socket)
                 del buffers[notified_socket]
                 if notified_socket in clients:
-                    del players[clients[notified_socket]]
+                    leaving_id = clients[notified_socket]
+                    if leaving_id in players:
+                        del players[leaving_id]
                     del clients[notified_socket]
                 notified_socket.close()
+
+                # Reassign host if needed and broadcast lobby update
+                if pid == host_id:
+                    host_id = next(iter(players.keys()), None)
+                broadcast({
+                    "type": MSG_LOBBY_UPDATE,
+                    "players": players,
+                    "host_id": host_id,
+                    "game_started": game_started
+                })
 
     for sock in exception_sockets:
         sockets_list.remove(sock)
         if sock in clients:
-            del players[clients[sock]]
+            leaving_id = clients[sock]
+            if leaving_id in players:
+                del players[leaving_id]
             del clients[sock]
         sock.close()
+        # Broadcast lobby update on socket exception removal
+        if host_id not in players:
+            host_id = next(iter(players.keys()), None)
+        broadcast({
+            "type": MSG_LOBBY_UPDATE,
+            "players": players,
+            "host_id": host_id,
+            "game_started": game_started
+        })

@@ -31,14 +31,14 @@ LOCK_STRING_RANGES = {
     "hard": (3, 5)
 }
 GRID_COLORS = {
-    "easy": (0, 255, 0),            # Green - Easy
-    "medium": (255, 255, 0),        # Yellow - Medium  
-    "hard": (255, 0, 0),            # Red - Hard
+    "easy": (0, 255, 128),          # Neon Green - Easy
+    "medium": (255, 200, 0),        # Golden Yellow - Medium  
+    "hard": (255, 80, 80),          # Warm Red - Hard
     "finished": (128, 128, 128),    # Gray - Finished/Broken
-    "border": (143, 19, 19),        # 8F1313
-    "backdrop": (40, 40, 60),       # 28283C
-    "lock_text": (0,0,0),
-    "hud_backdrop": (143, 19, 19),  # 8F1313
-    "hud_text": (226, 203, 156)     # E2CB92
+    "border": (255, 120, 0),        # Orange border
+    "backdrop": (10, 10, 12),       # Near-black
+    "lock_text": (0, 0, 0),
+    "hud_backdrop": (45, 22, 0),    # Dark orange-brown
+    "hud_text": (255, 210, 140)     # Warm light orange
 }
 

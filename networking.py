@@ -163,6 +163,12 @@ class ClientNetwork:
     def send_break(self, lock_id, user_string, user_wpm):
         self._send(MSG_BREAK_REQ, lock_id=lock_id, user_string=user_string, user_wpm=user_wpm)
 
+    def send_unclaim(self, lock_id):
+        self._send(MSG_UNCLAIM_REQ, lock_id=lock_id)
+
+    def send_start_game(self):
+        self._send(MSG_START_REQ)
+
     def get_packet(self, msg_type):
         #print(f"Getting packet of type {msg_type} from stack of size {len(self.packet_stack)}")
         with self.lock:
