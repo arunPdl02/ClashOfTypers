@@ -59,6 +59,33 @@ class Lock:
             self.available = True
         return success, points
 
+    # serialize lock for network transmission
+    def to_dict(self):
+        return {
+            "lock_id": self.lock_id,
+            "difficulty": self.difficulty,
+            "lock_string": self.lock_string,
+            "wpm_target": self.wpm_target,
+            "points": self.points,
+            "available": self.available,
+            "broken": self.broken,
+            "user_id": self.user_id,
+        }
+
+    @staticmethod
+    def from_dict(data: dict):
+        lock = Lock(
+            lock_id=data["lock_id"],
+            difficulty=data["difficulty"],
+            lock_string=data["lock_string"],
+            wpm_target=data["wpm_target"],
+            points=data["points"],
+        )
+        lock.available = data.get("available", True)
+        lock.broken = data.get("broken", False)
+        lock.user_id = data.get("user_id")
+        return lock
+
 class Game:
     def __init__(self, height, width):
         self._grid = []
@@ -111,6 +138,10 @@ class Game:
     # update grid
     def set_grid(self, grid):
         self._grid = grid
+
+    # network helpers
+    def to_dict(self):
+        return [lock.to_dict() for lock in self._grid]
 
     # debugging
     def _print_grid_state(self):

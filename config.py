@@ -34,6 +34,7 @@ GRID_COLORS = {
     "easy": (103, 204, 149),        # 67CC95
     "medium": (255, 157, 0),        # FF9D00
     "hard": (119, 82, 165),         # 7752A5
+    "finished": (128, 128, 128),    # Gray for broken locks
     "border": (143, 19, 19),        # 8F1313
     "backdrop": (40, 40, 60),       # 28283C
     "lock_text": (0,0,0),

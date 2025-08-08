@@ -17,7 +17,7 @@ from wpm import *
 from config import *
 from config import GRID_COLORS as colors
 from utils import countdown_timer
-from networking import ClientNetworkHandler
+from networking import ClientNetwork
 
 
 # Main loop:
@@ -223,7 +223,7 @@ def handle_typing_input(event, user_string, wpm_calculator=None):
 
 # start new game
 def start_game():
-    #network = ClientNetworkHandler(user_id=user_id)
+    #network = ClientNetwork(user_id=user_id)
 
     # Initialize client game state
     game = Game(height=GRID_ROWS, width=GRID_COLS)
