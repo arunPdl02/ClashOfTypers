@@ -11,7 +11,7 @@ from config import GRID_ROWS, GRID_COLS
 from messages import *
 
 # Server address
-HOST = '0.0.0.0'
+HOST = '127.0.0.1'
 PORT = 5555
 
 # Create TCP socket
@@ -36,7 +36,7 @@ grid.generate_locks()
 # helper to send JSON messages
 def send(socket, data):
     try:
-        message = json.dumps(data) + '/n'
+        message = json.dumps(data) + '\n'
         socket.sendall(message.encode())
     except:
         pass

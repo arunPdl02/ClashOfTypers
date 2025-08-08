@@ -28,6 +28,9 @@ class Lock:
         self.points = points
         self.broken = False
         self.user_id = None
+        self.claimed_by_user = None
+        self.broken_by_user = None
+
     
     # checks whether a claim can be made
     # upon success updates internal variables to mark lock as claimed by given user
