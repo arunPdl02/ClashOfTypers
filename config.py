@@ -19,16 +19,16 @@ GRID_ROW_OFFSET = HUD_VERT_OFFSET * 2
 SCREEN_WIDTH = (GRID_COLS * CELL_SIZE) + (PADDING * 2)
 SCREEN_HEIGHT = (GRID_ROWS * CELL_SIZE) + (PADDING * 2)
 GAME_TIME = 300
-LOCK_WPM_RANGES = {
-    "easy": (15, 30),
-    "medium": (30, 50),
-    "hard": (50, 70)
+LOCK_WPM = {
+    "easy": 40,
+    "medium": 60,
+    "hard": 80
 }
 
 LOCK_STRING_RANGES = {
-    "easy": (1, 5),
-    "medium": (5, 10),
-    "hard": (10, 15)
+    "easy": (1, 3),
+    "medium": (2, 4),
+    "hard": (3, 5)
 }
 GRID_COLORS = {
     "easy": (0, 255, 0),            # Green - Easy

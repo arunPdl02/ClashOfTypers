@@ -16,7 +16,7 @@
 
 import random
 from utils import generate_strings, calculate_points, get_difficulty
-from config import LOCK_WPM_RANGES as target_range
+from config import LOCK_WPM as target_range
 
 # defines lock objects on the grid and helpers to access information
 class Lock:
@@ -101,7 +101,7 @@ class Grid:
         for i in range(self.size):
             difficulty = self._difficulty_list[i]
             string = self._strings[i]
-            wpm = 30
+            wpm = target_range[difficulty]
             points = calculate_points(len(string), wpm)
             row = i // self.width
             col = i % self.width
@@ -144,6 +144,7 @@ class Grid:
 
         if not lock.broken and lock.claimed_by_user == player_id:
             if user_string == lock.lock_string and user_wpm >= lock.wpm_target:
+                print("Lock Broken, points should be awarded")
                 lock.broken = True
                 lock.broken_by_user = player_id
 
