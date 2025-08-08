@@ -11,7 +11,8 @@ from config import GRID_ROWS, GRID_COLS, GAME_TIME
 from messages import *
 
 # Server address
-HOST = '127.0.0.1'
+# Bind to all interfaces so remote clients can connect
+HOST = '0.0.0.0'
 PORT = 5555
 
 # Create TCP socket

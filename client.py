@@ -31,14 +31,17 @@ from game_ui import GameUI
 from messages import MSG_GRID_UPDATE
 from config import *
 
-HOST = '127.0.0.1'
-PORT = 5555
-
-# Get user ID from command line or default to 'Player1'
+# Allow overriding server IP/port via CLI
+# Usage: python client.py <user_id> <server_ip> <port>
 user_id = sys.argv[1] if len(sys.argv) > 1 else "Player1"
+server_ip = sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1"
+try:
+    server_port = int(sys.argv[3]) if len(sys.argv) > 3 else 5555
+except ValueError:
+    server_port = 5555
 
 # Connect to the server
-network = ClientNetwork(user_id, HOST, PORT)
+network = ClientNetwork(user_id, server_ip, server_port)
 print("[CLIENT] Waiting for initial grid update...")
 
 # Wait for MSG_GRID_UPDATE

@@ -17,7 +17,7 @@ from nltk.corpus import gutenberg
 from config import LOCK_STRING_RANGES as size_range
 
 # download corpus of sentences
-nltk.download('punkt_tab', quiet=True)
+nltk.download('punkt', quiet=True)
 nltk.download('gutenberg', quiet=True)
 
 # generate strings for all locks in the grid

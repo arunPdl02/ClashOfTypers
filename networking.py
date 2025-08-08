@@ -90,16 +90,11 @@ from collections import deque
 from messages import *
 
 
-HOST = '127.0.0.1'
-PORT = 5555
-
-
 # using TCP
 class ClientNetwork:
-    def __init__(self, user_id, server_ip='127.0.0.1', server_port=5000):
+    def __init__(self, user_id, server_ip='127.0.0.1', server_port=5555):
         
         # multithreading
-        self.server_address = (HOST, PORT)
         self.user_id = user_id
         self.sock = socket.socket()
         self.addr = (server_ip, server_port)
@@ -109,7 +104,7 @@ class ClientNetwork:
         
         # connection attempt
         try:
-            print(f"[networking] Connecting to {self.server_address}")
+            print(f"[networking] Connecting to {self.addr}")
             self.sock.connect(self.addr)
             threading.Thread(target=self._listen, daemon=True).start()
         except Exception as e:

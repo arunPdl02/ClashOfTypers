@@ -44,17 +44,24 @@ class GameUI:
         self.game_duration_seconds = GAME_TIME
 
         pygame.init()
-        self.screen = pygame.display.set_mode((800, 600))
+        # Larger, resizable window by default
+        self.windowed_size = (1024, 720)
+        self.fullscreen = False
+        self.screen = pygame.display.set_mode(self.windowed_size, pygame.RESIZABLE)
         pygame.display.set_caption("Clash Of Typers")
 
-        # Fonts (use small sizes to achieve pixel-like look on overlays)
+        # Fonts
         self.font = pygame.font.Font(None, 24)
         self.hud_font = pygame.font.Font(None, 22)
         self.title_font = pygame.font.Font(None, 72)
         self.mono_font = pygame.font.Font(None, 24)
+        # Typing screen fonts (bigger and more visible)
+        self.lock_text_font = pygame.font.Font(None, 32)
+        self.lock_mono_font = pygame.font.Font(None, 36)
+        self.lock_info_font = pygame.font.Font(None, 28)
         self.clock = pygame.time.Clock()
 
-        # Retro/CRT overlay surfaces
+        # Retro/CRT overlay surfaces (cover whole window)
         self.scanline_surface = self._create_scanline_surface(self.screen.get_size())
         self.vignette_surface = self._create_vignette_surface(self.screen.get_size())
         self.flicker_phase = 0
@@ -67,8 +74,28 @@ class GameUI:
 
         # Game session state
         self.game_start_ticks = None
-        self.show_help_overlay = True
+        # Overlays are off by default to avoid blocking view
+        self.show_help_overlay = False
+        self.show_legend_overlay = False
         self.toasts = []  # list of (text, expiry_ms, color)
+
+        # Buttons cached per-frame
+        self.help_button_rect = None
+        self.legend_button_rect = None
+
+        # Responsive layout metrics (computed each frame)
+        self.content_rect = pygame.Rect(0, 0, *self.windowed_size)
+        self.grid_origin_x = 10
+        self.grid_origin_y = 52
+        self.tile_w = 140
+        self.tile_h = 80
+        self.tile_gap = 12
+        self.tile_aspect_ratio = 140 / 80
+
+    def _rebuild_overlays(self):
+        size = self.screen.get_size()
+        self.scanline_surface = self._create_scanline_surface(size)
+        self.vignette_surface = self._create_vignette_surface(size)
 
     # ---------- Retro helpers ----------
     def _create_scanline_surface(self, size):
@@ -83,12 +110,17 @@ class GameUI:
         # Subtle flicker
         self.flicker_phase = (self.flicker_phase + 1) % 120
         flicker_alpha = 10 + int(10 * abs(math.sin(self.flicker_phase / 12)))
-        overlay = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)
+        width, height = self.screen.get_size()
+        overlay = pygame.Surface((width, height), pygame.SRCALPHA)
         overlay.fill((255, 255, 255, flicker_alpha))
         self.screen.blit(overlay, (0, 0))
         # Scanlines
+        if self.scanline_surface.get_size() != (width, height):
+            self.scanline_surface = self._create_scanline_surface((width, height))
         self.screen.blit(self.scanline_surface, (0, 0))
         # Vignette
+        if self.vignette_surface.get_size() != (width, height):
+            self.vignette_surface = self._create_vignette_surface((width, height))
         self.screen.blit(self.vignette_surface, (0, 0))
 
     def _create_vignette_surface(self, size):
@@ -113,11 +145,58 @@ class GameUI:
         self.screen.blit(text_surf, (x, y))
 
     def _draw_frame(self):
-        # Pixel-style frame/border around the screen
+        # Pixel-style frame/border around the screen (responsive)
+        width, height = self.screen.get_size()
         border_color = GRID_COLORS.get("border", (255, 120, 0))
         inner_color = GRID_COLORS.get("hud_text", (226, 203, 156))
-        pygame.draw.rect(self.screen, border_color, pygame.Rect(6, 6, 788, 588), border_radius=0)
-        pygame.draw.rect(self.screen, inner_color, pygame.Rect(10, 10, 780, 580), width=3)
+        outer_margin = 6
+        inner_margin = 10
+        outer_rect = pygame.Rect(outer_margin, outer_margin, width - 2 * outer_margin, height - 2 * outer_margin)
+        inner_rect = pygame.Rect(inner_margin, inner_margin, width - 2 * inner_margin, height - 2 * inner_margin)
+        pygame.draw.rect(self.screen, border_color, outer_rect, border_radius=0)
+        pygame.draw.rect(self.screen, inner_color, inner_rect, width=3)
+        # Content rect slightly inset from inner_rect for UI content
+        self.content_rect = pygame.Rect(inner_rect.x + 4, inner_rect.y + 4, inner_rect.w - 8, inner_rect.h - 8)
+
+    def _compute_layout(self):
+        # Compute grid layout centered in available content area above the HUD
+        width, height = self.screen.get_size()
+        hud_reserved_h = 46  # hud height + spacing
+        gap = 12
+
+        grid_area = pygame.Rect(
+            self.content_rect.x + 10,
+            self.content_rect.y + 10,
+            self.content_rect.w - 20,
+            max(0, (height - hud_reserved_h) - (self.content_rect.y + 10))
+        )
+
+        max_tile_w = (grid_area.w - (GRID_COLS - 1) * gap) / GRID_COLS if GRID_COLS > 0 else grid_area.w
+        max_tile_h = (grid_area.h - (GRID_ROWS - 1) * gap) / GRID_ROWS if GRID_ROWS > 0 else grid_area.h
+
+        tile_w_from_h = max_tile_h * self.tile_aspect_ratio
+        tile_h_from_w = max_tile_w / self.tile_aspect_ratio
+
+        if tile_w_from_h <= max_tile_w:
+            tile_w = tile_w_from_h
+            tile_h = max_tile_h
+        else:
+            tile_w = max_tile_w
+            tile_h = tile_h_from_w
+
+        tile_w = max(60, int(tile_w))
+        tile_h = max(40, int(tile_h))
+
+        actual_grid_w = GRID_COLS * tile_w + (GRID_COLS - 1) * gap
+        actual_grid_h = GRID_ROWS * tile_h + (GRID_ROWS - 1) * gap
+        origin_x = grid_area.x + (grid_area.w - actual_grid_w) // 2
+        origin_y = grid_area.y + (grid_area.h - actual_grid_h) // 2
+
+        self.tile_w = tile_w
+        self.tile_h = tile_h
+        self.tile_gap = gap
+        self.grid_origin_x = origin_x
+        self.grid_origin_y = origin_y
 
     # ---------- UI building blocks ----------
     def _add_toast(self, text, duration_ms=1600, color=(226, 203, 156)):
@@ -133,12 +212,13 @@ class GameUI:
         # Draw up to 3, newest last at top
         to_draw = self.toasts[-3:]
         base_y = 18
+        width, _ = self.screen.get_size()
         for i, toast in enumerate(reversed(to_draw)):
             text_surf = self.hud_font.render(toast["text"], True, toast["color"]) 
             padding = 8
             w = text_surf.get_width() + padding * 2
             h = text_surf.get_height() + padding
-            x = (800 - w) // 2
+            x = (width - w) // 2
             y = base_y + i * (h + 6)
             pygame.draw.rect(self.screen, (20, 20, 20), pygame.Rect(x, y, w, h))
             pygame.draw.rect(self.screen, (143, 19, 19), pygame.Rect(x, y, w, h), 2)
@@ -153,13 +233,19 @@ class GameUI:
             text = self.hud_font.render(label, True, (226, 203, 156))
             self.screen.blit(text, (x + 6, y - 18))
 
-    def _draw_legend(self):
-        # Difficulty legend panel
-        panel = pygame.Rect(620, 52, 160, 120)
+    def _draw_legend_overlay(self):
+        width, height = self.screen.get_size()
+        # Dim background
+        dim = pygame.Surface((width, height), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 140))
+        self.screen.blit(dim, (0, 0))
+        # Panel
+        panel_w, panel_h = min(480, width - 80), 200
+        panel = pygame.Rect((width - panel_w) // 2, (height - panel_h) // 2, panel_w, panel_h)
         pygame.draw.rect(self.screen, (20, 20, 20), panel)
-        pygame.draw.rect(self.screen, (143, 19, 19), panel, 2)
-        title = self.hud_font.render("Legend", True, (226, 203, 156))
-        self.screen.blit(title, (panel.x + 8, panel.y + 6))
+        pygame.draw.rect(self.screen, GRID_COLORS.get("border", (255, 120, 0)), panel, 2)
+        title = self.hud_font.render("Legend", True, GRID_COLORS.get("hud_text", (226, 203, 156)))
+        self.screen.blit(title, (panel.x + 12, panel.y + 10))
         rows = [
             ("Easy", GRID_COLORS.get("easy", (0, 255, 0))),
             ("Medium", GRID_COLORS.get("medium", (255, 255, 0))),
@@ -167,33 +253,39 @@ class GameUI:
             ("Broken", GRID_COLORS.get("finished", (128, 128, 128))),
         ]
         for i, (name, color) in enumerate(rows):
-            y = panel.y + 28 + i * 22
-            pygame.draw.rect(self.screen, color, pygame.Rect(panel.x + 10, y, 16, 16))
+            y = panel.y + 40 + i * 28
+            pygame.draw.rect(self.screen, color, pygame.Rect(panel.x + 16, y, 18, 18))
             label = self.hud_font.render(name, True, (220, 220, 220))
-            self.screen.blit(label, (panel.x + 32, y - 2))
+            self.screen.blit(label, (panel.x + 44, y - 2))
 
-    def _draw_help(self):
-        if not self.show_help_overlay:
-            return
-        panel = pygame.Rect(20, 52, 580, 120)
+    def _draw_help_overlay(self):
+        width, height = self.screen.get_size()
+        # Dim background
+        dim = pygame.Surface((width, height), pygame.SRCALPHA)
+        dim.fill((0, 0, 0, 140))
+        self.screen.blit(dim, (0, 0))
+        # Panel
+        panel_w, panel_h = min(640, width - 80), 220
+        panel = pygame.Rect((width - panel_w) // 2, (height - panel_h) // 2, panel_w, panel_h)
         pygame.draw.rect(self.screen, (20, 20, 20), panel)
-        pygame.draw.rect(self.screen, (143, 19, 19), panel, 2)
-        header = self.hud_font.render("How to Play", True, (226, 203, 156))
-        self.screen.blit(header, (panel.x + 8, panel.y + 6))
+        pygame.draw.rect(self.screen, GRID_COLORS.get("border", (255, 120, 0)), panel, 2)
+        header = self.hud_font.render("How to Play", True, GRID_COLORS.get("hud_text", (226, 203, 156)))
+        self.screen.blit(header, (panel.x + 12, panel.y + 10))
         lines = [
             "1) Click a lock to claim it.",
             "2) Type the sentence exactly.",
             "3) Press Enter when done.",
             "Goal: Meet the WPM target to break the lock!",
-            "Tips: ESC to cancel, H to hide help",
+            "Tips: ESC to cancel, H/L to toggle panels",
         ]
         for i, text in enumerate(lines):
             line = self.hud_font.render(text, True, (200, 200, 200))
-            self.screen.blit(line, (panel.x + 10, panel.y + 28 + i * 18))
+            self.screen.blit(line, (panel.x + 12, panel.y + 42 + i * 22))
 
     def _draw_hud(self, remaining_seconds):
         # HUD background along bottom
-        hud_bg = pygame.Rect(10, 560, 780, 30)
+        width, height = self.screen.get_size()
+        hud_bg = pygame.Rect(10, height - 40, width - 20, 30)
         pygame.draw.rect(self.screen, GRID_COLORS.get("hud_backdrop", (60, 30, 30)), hud_bg)
         pygame.draw.rect(self.screen, (0, 0, 0), hud_bg, 2)
 
@@ -201,7 +293,7 @@ class GameUI:
         mins = remaining_seconds // 60
         secs = remaining_seconds % 60
         timer_text = self.hud_font.render(f"{mins:02d}:{secs:02d}", True, GRID_COLORS.get("hud_text", (226, 203, 156)))
-        self.screen.blit(timer_text, (20, 565))
+        self.screen.blit(timer_text, (20, hud_bg.y + 5))
 
         # Render each player's score compactly
         offset_x = 100
@@ -209,7 +301,7 @@ class GameUI:
             color = (226, 203, 156) if pid == self.user_id else (200, 200, 200)
             text = f"{pid}: {pdata['score']} ({pdata['locks_broken']})"
             surf = self.hud_font.render(text, True, color)
-            self.screen.blit(surf, (offset_x, 565))
+            self.screen.blit(surf, (offset_x, hud_bg.y + 5))
             offset_x += surf.get_width() + 20
 
         # Progress bar (locks broken)
@@ -217,7 +309,35 @@ class GameUI:
         remaining = getattr(self.grid, "remaining_locks", total)
         broken = max(0, total - remaining)
         pct = broken / float(total or 1)
-        self._draw_progress_bar(540, 562, 240, 20, pct, label=f"Progress {broken}/{total}")
+        # Progress aligned to right side of HUD
+        bar_w = 280
+        self._draw_progress_bar(width - bar_w - 20, hud_bg.y + 2, bar_w, 20, pct, label=f"Progress {broken}/{total}")
+
+    def _draw_hud_controls(self):
+        # Small clickable labels in the HUD bar (bottom-right)
+        width, height = self.screen.get_size()
+        base_y = height - 38
+        labels = []
+        if True:
+            labels.append(("H: Help", 'help'))
+            labels.append(("L: Legend", 'legend'))
+            labels.append(("F: Fullscreen", None))
+        # Measure and place from right to left
+        x = width - 24
+        spacing = 10
+        self.help_button_rect = None
+        self.legend_button_rect = None
+        for text, key in reversed(labels):
+            surf = self.hud_font.render(text, True, GRID_COLORS.get("hud_text", (226, 203, 156)))
+            rect = pygame.Rect(x - surf.get_width() - 12, base_y, surf.get_width() + 12, surf.get_height() + 6)
+            pygame.draw.rect(self.screen, (20, 20, 20), rect)
+            pygame.draw.rect(self.screen, GRID_COLORS.get("border", (255, 120, 0)), rect, 2)
+            self.screen.blit(surf, (rect.x + 6, rect.y + 3))
+            if key == 'help':
+                self.help_button_rect = rect
+            elif key == 'legend':
+                self.legend_button_rect = rect
+            x = rect.x - spacing
 
     def _draw_tile(self, lock, hovered=False):
         if lock.broken_by_user:
@@ -229,9 +349,9 @@ class GameUI:
         else:
             fill_color = GRID_COLORS.get(lock.difficulty, (255, 255, 255))
 
-        x = lock.col * 160 + 10
-        y = lock.row * 100 + 10
-        w, h = 140, 80
+        w, h = self.tile_w, self.tile_h
+        x = self.grid_origin_x + lock.col * (w + self.tile_gap)
+        y = self.grid_origin_y + lock.row * (h + self.tile_gap)
 
         # Pixel box: border + fill
         pygame.draw.rect(self.screen, (20, 20, 20), pygame.Rect(x - 2, y - 2, w + 4, h + 4))
@@ -260,7 +380,12 @@ class GameUI:
     def _draw_grid(self, mouse_pos):
         hovered_lock = None
         for lock in self.grid.grid:
-            rect = pygame.Rect(lock.col * 160 + 10, lock.row * 100 + 10, 140, 80)
+            rect = pygame.Rect(
+                self.grid_origin_x + lock.col * (self.tile_w + self.tile_gap),
+                self.grid_origin_y + lock.row * (self.tile_h + self.tile_gap),
+                self.tile_w,
+                self.tile_h,
+            )
             is_hovered = rect.collidepoint(mouse_pos)
             if is_hovered:
                 hovered_lock = lock
@@ -285,8 +410,9 @@ class GameUI:
         max_w = max(self.hud_font.size(s)[0] for s in lines) + 16
         h = 8 + len(lines) * 18
         x, y = mouse_pos
-        x = min(max(14, x + 12), 800 - max_w - 14)
-        y = min(max(52, y + 12), 600 - h - 14)
+        width, height = self.screen.get_size()
+        x = min(max(14, x + 12), width - max_w - 14)
+        y = min(max(52, y + 12), height - h - 14)
         panel = pygame.Rect(x, y, max_w, h)
         pygame.draw.rect(self.screen, (20, 20, 20), panel)
         pygame.draw.rect(self.screen, (143, 19, 19), panel, 2)
@@ -304,6 +430,9 @@ class GameUI:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     return
+                elif event.type == pygame.VIDEORESIZE:
+                    self.screen = pygame.display.set_mode(event.size, pygame.RESIZABLE)
+                    self._rebuild_overlays()
                 if event.type == pygame.KEYDOWN and (event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER):
                     done = True
 
@@ -312,9 +441,10 @@ class GameUI:
             self._draw_frame()
 
             # Title
+            width, height = self.screen.get_size()
             title_shadow = self.title_font.render("CLASH OF TYPERS", True, (20, 20, 20))
             title = self.title_font.render("CLASH OF TYPERS", True, GRID_COLORS.get("hud_text", (226, 203, 156)))
-            tx = (800 - title.get_width()) // 2
+            tx = (width - title.get_width()) // 2
             self.screen.blit(title_shadow, (tx + 4, 136))
             self.screen.blit(title, (tx, 132))
 
@@ -322,16 +452,17 @@ class GameUI:
             elapsed = (pygame.time.get_ticks() - start) / 1000.0
             duration = 1.75
             progress = max(0.0, min(1.0, elapsed / duration))
-            bar_rect = pygame.Rect(150, 360, 500, 18)
+            bar_w = min(600, width - 200)
+            bar_rect = pygame.Rect((width - bar_w) // 2, 360, bar_w, 18)
             pygame.draw.rect(self.screen, (20, 20, 20), bar_rect)
-            pygame.draw.rect(self.screen, GRID_COLORS.get("hud_text", (226, 203, 156)), pygame.Rect(150, 360, int(500 * progress), 18))
+            pygame.draw.rect(self.screen, GRID_COLORS.get("hud_text", (226, 203, 156)), pygame.Rect(bar_rect.x, bar_rect.y, int(bar_w * progress), 18))
             pygame.draw.rect(self.screen, GRID_COLORS.get("border", (255, 120, 0)), bar_rect, 3)
 
             # Press start prompt (blinks)
             pulse = (pulse + 1) % 60
             if pulse < 40:
                 prompt = self.hud_font.render("PRESS ENTER TO CONTINUE", True, GRID_COLORS.get("hud_text", (226, 203, 156)))
-                px = (800 - prompt.get_width()) // 2
+                px = (width - prompt.get_width()) // 2
                 self.screen.blit(prompt, (px, 400))
 
             self._apply_crt_overlay()
@@ -342,14 +473,19 @@ class GameUI:
         # Retro backdrop
         self.screen.fill(GRID_COLORS.get("backdrop", (10, 10, 12)))
         self._draw_frame()
+        self._compute_layout()
 
         mouse_pos = pygame.mouse.get_pos()
         hovered_lock = self._draw_grid(mouse_pos)
 
-        # Panels
-        self._draw_help()
-        self._draw_legend()
+        # Panels: help/legend toggled as overlays only
         self._draw_hud(remaining_seconds)
+        self._draw_hud_controls()
+
+        if self.show_help_overlay:
+            self._draw_help_overlay()
+        if self.show_legend_overlay:
+            self._draw_legend_overlay()
 
         # Tooltip on hover
         self._draw_tooltip(hovered_lock, mouse_pos)
@@ -365,8 +501,9 @@ class GameUI:
         self._draw_frame()
 
         # Header
+        width, height = self.screen.get_size()
         header = self.title_font.render("LOCK CHALLENGE", True, GRID_COLORS.get("hud_text", (226, 203, 156)))
-        hx = (800 - header.get_width()) // 2
+        hx = (width - header.get_width()) // 2
         self.screen.blit(header, (hx, 40))
 
         # Target info panel
@@ -383,11 +520,28 @@ class GameUI:
             t = self.hud_font.render(s, True, (220, 220, 220))
             self.screen.blit(t, (panel.x + 12 + i * 190, panel.y + 10))
 
-        # Target text block
-        lines = [lock.lock_string[i : i + 48] for i in range(0, len(lock.lock_string), 48)]
-        for i, line in enumerate(lines[:7]):
-            text_surf = self.font.render(line, True, GRID_COLORS.get("hud_text", (226, 203, 156)))
-            self.screen.blit(text_surf, (24, 220 + i * 28))
+        # Target text block (larger and more visible with wrap)
+        def wrap_text(text, font, max_w):
+            words = text.split(' ')
+            lines = []
+            current = ''
+            for w in words:
+                test = (current + ' ' + w).strip()
+                if font.size(test)[0] <= max_w:
+                    current = test
+                else:
+                    if current:
+                        lines.append(current)
+                    current = w
+            if current:
+                lines.append(current)
+            return lines
+
+        max_text_w = width - 48
+        wrapped_lines = wrap_text(lock.lock_string, self.lock_text_font, max_text_w)
+        for i, line in enumerate(wrapped_lines[:8]):
+            text_surf = self.lock_text_font.render(line, True, GRID_COLORS.get("hud_text", (226, 203, 156)))
+            self.screen.blit(text_surf, (24, 220 + i * (self.lock_text_font.get_height() + 6)))
 
         # Input with blinking cursor + correctness coloring
         target = lock.lock_string
@@ -404,25 +558,25 @@ class GameUI:
         cursor_visible = (pygame.time.get_ticks() // 400) % 2 == 0
         caret = "▌" if cursor_visible else " "
 
-        x0, y0 = 24, 420
+        x0, y0 = 24, min(420, 220 + len(wrapped_lines[:8]) * (self.lock_text_font.get_height() + 6) + 20)
         # Draw correct part in green
-        correct_surf = self.mono_font.render(correct_part, True, (0, 255, 128))
+        correct_surf = self.lock_mono_font.render(correct_part, True, (0, 255, 128))
         self.screen.blit(correct_surf, (x0, y0))
         # Draw wrong part in red
         x_off = x0 + correct_surf.get_width()
-        wrong_surf = self.mono_font.render(wrong_part, True, (255, 80, 80))
+        wrong_surf = self.lock_mono_font.render(wrong_part, True, (255, 80, 80))
         self.screen.blit(wrong_surf, (x_off, y0))
         # Draw caret
-        caret_surf = self.mono_font.render(caret, True, (0, 255, 128))
+        caret_surf = self.lock_mono_font.render(caret, True, (0, 255, 128))
         self.screen.blit(caret_surf, (x_off + wrong_surf.get_width(), y0))
 
         # Live WPM + timer
-        wpm_text = self.hud_font.render(f"WPM: {self.wpm:.1f}", True, (255, 255, 0))
-        self.screen.blit(wpm_text, (24, 460))
+        wpm_text = self.lock_info_font.render(f"WPM: {self.wpm:.1f}", True, (255, 255, 0))
+        self.screen.blit(wpm_text, (24, y0 + self.lock_mono_font.get_height() + 12))
         mins = remaining_seconds // 60
         secs = remaining_seconds % 60
-        timer_text = self.hud_font.render(f"Time Left: {mins:02d}:{secs:02d}", True, GRID_COLORS.get("hud_text", (226, 203, 156)))
-        self.screen.blit(timer_text, (160, 460))
+        timer_text = self.lock_info_font.render(f"Time Left: {mins:02d}:{secs:02d}", True, GRID_COLORS.get("hud_text", (226, 203, 156)))
+        self.screen.blit(timer_text, (24 + wpm_text.get_width() + 20, y0 + self.lock_mono_font.get_height() + 12))
 
         # Toasts
         self._draw_toasts()
@@ -433,24 +587,31 @@ class GameUI:
     # ---------- Interaction helpers ----------
     def detect_click(self, pos):
         for lock in self.grid.grid:
-            rect = pygame.Rect(lock.col * 160 + 10, lock.row * 100 + 10, 140, 80)
+            rect = pygame.Rect(
+                self.grid_origin_x + lock.col * (self.tile_w + self.tile_gap),
+                self.grid_origin_y + lock.row * (self.tile_h + self.tile_gap),
+                self.tile_w,
+                self.tile_h,
+            )
             if rect.collidepoint(pos):
                 return lock
         return None
 
     # ---------- Lobby & countdown ----------
     def _render_lobby_screen(self):
+        width, height = self.screen.get_size()
         self.screen.fill(GRID_COLORS.get("backdrop", (10, 10, 12)))
         self._draw_frame()
 
         title_shadow = self.title_font.render("LOBBY", True, (20, 20, 20))
         title = self.title_font.render("LOBBY", True, GRID_COLORS.get("hud_text", (226, 203, 156)))
-        tx = (800 - title.get_width()) // 2
+        tx = (width - title.get_width()) // 2
         self.screen.blit(title_shadow, (tx + 4, 90))
         self.screen.blit(title, (tx, 86))
 
         # Players panel
-        panel = pygame.Rect(120, 180, 560, 260)
+        panel_w = min(640, width - 160)
+        panel = pygame.Rect((width - panel_w) // 2, 180, panel_w, 260)
         pygame.draw.rect(self.screen, (20, 20, 20), panel)
         pygame.draw.rect(self.screen, GRID_COLORS.get("border", (255, 120, 0)), panel, 2)
         header = self.hud_font.render("Players joined:", True, GRID_COLORS.get("hud_text", (226, 203, 156)))
@@ -464,7 +625,7 @@ class GameUI:
             self.screen.blit(surf, (panel.x + 14, panel.y + 40 + i * 26))
 
         # Start button for host
-        btn_rect = pygame.Rect(260, 460, 280, 44)
+        btn_rect = pygame.Rect((width - 280) // 2, 460, 280, 44)
         if self.is_host:
             pygame.draw.rect(self.screen, (20, 20, 20), btn_rect)
             pygame.draw.rect(self.screen, GRID_COLORS.get("border", (255, 120, 0)), btn_rect, 3)
@@ -473,7 +634,7 @@ class GameUI:
         else:
             # Waiting label
             label = self.hud_font.render("Waiting for host to start...", True, GRID_COLORS.get("hud_text", (226, 203, 156)))
-            lx = (800 - label.get_width()) // 2
+            lx = (width - label.get_width()) // 2
             self.screen.blit(label, (lx, 470))
 
         self._apply_crt_overlay()
@@ -482,6 +643,7 @@ class GameUI:
         return btn_rect if self.is_host else None
 
     def _render_countdown_screen(self):
+        width, height = self.screen.get_size()
         self.screen.fill(GRID_COLORS.get("backdrop", (10, 10, 12)))
         self._draw_frame()
 
@@ -490,11 +652,11 @@ class GameUI:
         text = "GO!" if remaining <= 0 else str(remaining)
         color = (120, 255, 120) if text == "GO!" else GRID_COLORS.get("hud_text", (226, 203, 156))
         title = self.title_font.render(text, True, color)
-        tx = (800 - title.get_width()) // 2
+        tx = (width - title.get_width()) // 2
         self.screen.blit(title, (tx, 240))
 
         subtitle = self.hud_font.render("Get ready...", True, GRID_COLORS.get("hud_text", (226, 203, 156)))
-        sx = (800 - subtitle.get_width()) // 2
+        sx = (width - subtitle.get_width()) // 2
         self.screen.blit(subtitle, (sx, 320))
 
         self._apply_crt_overlay()
@@ -553,8 +715,19 @@ class GameUI:
                     for event in pygame.event.get():
                         if event.type == pygame.QUIT:
                             running = False
+                        elif event.type == pygame.VIDEORESIZE:
+                            self.screen = pygame.display.set_mode(event.size, pygame.RESIZABLE)
+                            self._rebuild_overlays()
                         elif event.type == pygame.KEYDOWN and self.is_host and (event.key == pygame.K_RETURN or event.key == pygame.K_KP_ENTER):
                             self.network.send_start_game()
+                        elif event.type == pygame.KEYDOWN and (event.key == pygame.K_f or event.key == pygame.K_F11):
+                            # Toggle fullscreen
+                            self.fullscreen = not self.fullscreen
+                            if self.fullscreen:
+                                self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+                            else:
+                                self.screen = pygame.display.set_mode(self.windowed_size, pygame.RESIZABLE)
+                            self._rebuild_overlays()
                         elif event.type == pygame.MOUSEBUTTONDOWN and self.is_host and start_btn_rect and start_btn_rect.collidepoint(event.pos):
                             self.network.send_start_game()
                     continue
@@ -648,7 +821,17 @@ class GameUI:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
+                elif event.type == pygame.VIDEORESIZE:
+                    self.screen = pygame.display.set_mode(event.size, pygame.RESIZABLE)
+                    self._rebuild_overlays()
                 elif event.type == pygame.MOUSEBUTTONDOWN and not self.selected_lock:
+                    # HUD controls clicks
+                    if self.help_button_rect and self.help_button_rect.collidepoint(event.pos):
+                        self.show_help_overlay = not self.show_help_overlay
+                        continue
+                    if self.legend_button_rect and self.legend_button_rect.collidepoint(event.pos):
+                        self.show_legend_overlay = not self.show_legend_overlay
+                        continue
                     clicked = self.detect_click(event.pos)
                     if clicked and not clicked.broken:
                         # Block entry if claimed by another user
@@ -694,6 +877,16 @@ class GameUI:
                 elif event.type == pygame.KEYDOWN and not self.selected_lock:
                     if event.key == pygame.K_h:
                         self.show_help_overlay = not self.show_help_overlay
+                    elif event.key == pygame.K_l:
+                        self.show_legend_overlay = not self.show_legend_overlay
+                    elif event.key == pygame.K_f or event.key == pygame.K_F11:
+                        # Toggle fullscreen
+                        self.fullscreen = not self.fullscreen
+                        if self.fullscreen:
+                            self.screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
+                        else:
+                            self.screen = pygame.display.set_mode(self.windowed_size, pygame.RESIZABLE)
+                        self._rebuild_overlays()
 
     def _render_end_screen(self):
         # Simple end screen showing final scores
@@ -707,17 +900,19 @@ class GameUI:
                 if event.type == pygame.KEYDOWN and (event.key == pygame.K_RETURN or event.key == pygame.K_ESCAPE):
                     done = True
 
+            width, height = self.screen.get_size()
             self.screen.fill(GRID_COLORS.get("backdrop", (30, 30, 30)))
             self._draw_frame()
 
             title_shadow = self.title_font.render("GAME OVER", True, (20, 20, 20))
             title = self.title_font.render("GAME OVER", True, (226, 203, 156))
-            tx = (800 - title.get_width()) // 2
+            tx = (width - title.get_width()) // 2
             self.screen.blit(title_shadow, (tx + 4, 136))
             self.screen.blit(title, (tx, 132))
 
             # Scores panel
-            panel = pygame.Rect(150, 240, 500, 180)
+            panel_w = min(600, width - 200)
+            panel = pygame.Rect((width - panel_w) // 2, 240, panel_w, 180)
             pygame.draw.rect(self.screen, (20, 20, 20), panel)
             pygame.draw.rect(self.screen, (143, 19, 19), panel, 2)
             sorted_players = sorted(self.players.items(), key=lambda kv: kv[1]["score"], reverse=True)
@@ -730,7 +925,7 @@ class GameUI:
             pulse = (pulse + 1) % 60
             if pulse < 40:
                 prompt = self.hud_font.render("Press ENTER to exit", True, (226, 203, 156))
-                px = (800 - prompt.get_width()) // 2
+                px = (width - prompt.get_width()) // 2
                 self.screen.blit(prompt, (px, 450))
 
             self._apply_crt_overlay()
