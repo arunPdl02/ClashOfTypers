@@ -128,6 +128,11 @@ class ClientNetwork:
                     try:
                         # parse as JSON
                         msg = json.loads(line.strip())
+                        # DEBUG: log inbound messages once we've parsed them
+                        try:
+                            print("[CLIENT] RECV", msg)
+                        except Exception:
+                            pass
                         
                         with self.lock:                                                 # lock thread before writing
                             self.packet_stack.append(msg)           
@@ -165,18 +170,18 @@ class ClientNetwork:
         self._send(MSG_START_REQ)
 
     def get_packet(self, msg_type):
-        #print(f"Getting packet of type {msg_type} from stack of size {len(self.packet_stack)}")
+        # Scan the queue without losing order; return the first matching packet
         with self.lock:
-            for _ in range(len(self.packet_stack)):
-                # need to push back after pop since packets of other types might be on top
-                pkt = self.packet_stack.pop()
-                #print(pkt)
-                if pkt.get("type") == msg_type:
-                    return pkt
-                
-                self.packet_stack.append(pkt)
-        
-        return None
+            found = None
+            size = len(self.packet_stack)
+            for _ in range(size):
+                pkt = self.packet_stack.popleft()
+                if found is None and pkt.get("type") == msg_type:
+                    found = pkt
+                    # do not append back; effectively remove it
+                else:
+                    self.packet_stack.append(pkt)
+            return found
 
     def close(self):
         self.running = False

@@ -78,11 +78,17 @@ while True:
                 host_id = player_id
 
             # Send initial game state for compatibility
-            send(client_socket, {
+            initial_payload = {
                 "type": MSG_GRID_UPDATE,
                 "grid": grid.to_dict(),
                 "players": players
-            })
+            }
+            send(client_socket, initial_payload)
+            try:
+                dbg_len = len((json.dumps(initial_payload) + '\n').encode('utf-8'))
+                print(f"[SERVER] Sent initial grid to {player_id} ({dbg_len} bytes)")
+            except Exception:
+                pass
 
             # Broadcast lobby update
             broadcast({
