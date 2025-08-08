@@ -89,11 +89,17 @@ import json
 from collections import deque
 from messages import *
 
+
+HOST = '127.0.0.1'
+PORT = 5555
+
+
 # using TCP
 class ClientNetwork:
     def __init__(self, user_id, server_ip='127.0.0.1', server_port=5000):
         
         # multithreading
+        self.server_address = (HOST, PORT)
         self.user_id = user_id
         self.sock = socket.socket()
         self.addr = (server_ip, server_port)
@@ -103,14 +109,12 @@ class ClientNetwork:
         
         # connection attempt
         try:
+            print(f"[networking] Connecting to {self.server_address}")
             self.sock.connect(self.addr)
-            self.simulated = False
             threading.Thread(target=self._listen, daemon=True).start()
-        except:
-            print("[networking] no server detected")
-            self.simulated = True
-            self.grid = None
-            self.players = {}
+        except Exception as e:
+            print(f"[networking] Connection failed: {e}")
+            raise SystemExit("Could not connect to server.")
 
     # socket active listener
     def _listen(self):
@@ -142,59 +146,15 @@ class ClientNetwork:
         msg = {"type": msg_type, "user_id": self.user_id, **kwargs}
         
         # temporary until server is made
-        if self.simulated:
-            if self.grid is not None:
-                self._simulate(msg)
-        else:
-            try:
-                self.sock.sendall((json.dumps(msg) + '\n').encode())                    # send all bytes
-            except:
-                pass
-    
-    # stand in for server
-    def _simulate(self, msg):
-        msg_type = msg.get("type")
-        uid = msg.get("user_id")
-        #print(1)
-        if uid not in self.players:
-            self.players[uid] = {"icon": "★", "score": 0, "locks_broken": 0}
-        #print(2)
-        if msg_type == MSG_CLAIM_REQ:
-            lock_id = msg.get("lock_id")
-            success = self.grid.claim_lock(lock_id, uid)
-            lock = self.grid.get_lock(lock_id)
-            self._push({"type": "claim_result", "success": success, "lock": lock.to_dict()})
-            #print(3)
-        
-        elif msg_type == MSG_BREAK_REQ:
-            lock_id = msg.get("lock_id")
-            string = msg.get("user_string")
-            wpm = msg.get("user_wpm")
-            
-            success, points = self.grid.break_lock(lock_id, string, wpm, uid)
-            
-            lock = self.grid.get_lock(lock_id)
-            
-            if success:
-                self.players[uid]["score"] += points
-                self.players[uid]["locks_broken"] += 1
-            
-            self._push({"type": "break_result", "success": success, "points": points, "lock": lock.to_dict()})
-            #print(4)
-
-        self._push({"type": "grid_update", "grid": self.grid.to_dict(), "players": self.players})
-        #print(5)
+        try:
+            self.sock.sendall((json.dumps(msg) + '\n').encode())
+        except:
+            pass
     
     # push to stack only after locking thread
     def _push(self, msg):
         with self.lock:
             self.packet_stack.append(msg)
-
-    def set_sim_grid(self, grid):
-        self.grid = grid
-
-    def set_sim_players(self, players):
-        self.players = players
 
     def send_claim(self, lock_id):
         self._send(MSG_CLAIM_REQ, lock_id=lock_id)
