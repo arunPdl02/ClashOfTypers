@@ -20,7 +20,7 @@ from config import LOCK_WPM_RANGES as target_range
 
 # defines lock objects on the grid and helpers to access information
 class Lock:
-    def __init__(self, lock_id, difficulty, lock_string, wpm_target, points):
+    def __init__(self, lock_id, difficulty, lock_string, wpm_target, points, row, col):
         self.lock_id = lock_id
         self.difficulty = difficulty
         self.lock_string = lock_string
@@ -30,6 +30,8 @@ class Lock:
         self.user_id = None
         self.claimed_by_user = None
         self.broken_by_user = None
+        self.row = row
+        self.col = col
 
     
     # checks whether a claim can be made
@@ -57,7 +59,9 @@ class Lock:
             "points": self.points,
             "broken": self.broken,
             "claimed_by_user": self.claimed_by_user,
-            "broken_by_user": self.broken_by_user
+            "broken_by_user": self.broken_by_user,
+            "row": self.row,
+            "col": self.col
         }
 
     # initialize a new lock object using the dictionary sent from server
@@ -68,7 +72,9 @@ class Lock:
             difficulty=data["difficulty"],
             lock_string=data["lock_string"],
             wpm_target=data["wpm_target"],
-            points=data["points"]
+            points=data["points"],
+            row=data["row"],
+            col=data["col"]
         )
         lock.broken = data["broken"]
         lock.claimed_by_user = data["claimed_by_user"]
@@ -95,9 +101,11 @@ class Grid:
         for i in range(self.size):
             difficulty = self._difficulty_list[i]
             string = self._strings[i]
-            wpm = random.randint(*target_range[difficulty])
+            wpm = 30
             points = calculate_points(len(string), wpm)
-            lock = Lock(i, difficulty, string, wpm, points)
+            row = i // self.width
+            col = i % self.width
+            lock = Lock(i, difficulty, string, wpm, points, row, col)
             
             grid.append(lock)
 
@@ -129,27 +137,29 @@ class Grid:
     # attempts to break a lock and returns a boolean to indicate success along with the appropriate points to be received
     # modifies the lock in place to reflect the change if successful
     def break_lock(self, lock_id, user_string, user_wpm, player_id):
-        lock = self.get_lock(lock_id)                                                           # get lock from grid
+        lock = self.get_lock(lock_id)
 
-        if not lock.broken and lock.claimed_by_user == player_id:                               # redundancy check
-            
-            # update lock to reflect broken state
-            if user_string == lock.lock_string and user_wpm >= lock.wpm_target:                 # validate user attempt
+        if not lock:
+            return False, 0  # <-- Lock not found
+
+        if not lock.broken and lock.claimed_by_user == player_id:
+            if user_string == lock.lock_string and user_wpm >= lock.wpm_target:
                 lock.broken = True
                 lock.broken_by_user = player_id
-                
+
                 points = lock.points
                 lock.points = 0
-                
+
                 self.remaining_locks -= 1
                 lock.claimed_by_user = None
-            
+
                 return True, points
-            
-            # unclaim the lock upon failure to free up for other players 
             else:
                 lock.claimed_by_user = None
                 return False, 0
+
+        return False, 0 
+
 
     # swap in lock with new data in place 
     def update_lock(self, lock):
