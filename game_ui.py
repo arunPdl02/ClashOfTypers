@@ -16,7 +16,7 @@ class GameUI:
 
         pygame.init()
         self.screen = pygame.display.set_mode((800, 600))
-        pygame.display.set_caption("Typing Locks")
+        pygame.display.set_caption("Clash Of Typers")
         self.font = pygame.font.Font(None, 28)
         self.clock = pygame.time.Clock()
 
@@ -28,13 +28,14 @@ class GameUI:
     def render(self):
         self.screen.fill((30, 30, 30))
         for lock in self.grid.grid:
-            color = (255, 255, 255)
-            if lock.claimed_by_user == self.user_id:
+            if lock.broken_by_user:
+                color = GRID_COLORS["finished"]
+            elif lock.claimed_by_user == self.user_id:
                 color = (100, 255, 100)
             elif lock.claimed_by_user:
                 color = (100, 100, 255)
-            elif lock.broken_by_user:
-                color = (255, 100, 100)
+            else:
+                color = GRID_COLORS.get(lock.difficulty, (255, 255, 255))  
 
             pygame.draw.rect(self.screen, color, pygame.Rect(lock.col * 160 + 10, lock.row * 100 + 10, 140, 80))
             text_surf = self.font.render(f"{lock.lock_string[:10]}...", True, (0, 0, 0))
@@ -84,12 +85,23 @@ class GameUI:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
+
+
                 elif event.type == pygame.MOUSEBUTTONDOWN and not self.selected_lock:
                     clicked = self.detect_click(event.pos)
                     if clicked and not clicked.broken:
+                        # Locally mark as claimed
+                        clicked.claimed_by_user = self.user_id
+
+                        # Send claim to server
+                        self.network.send_claim(clicked.lock_id)
+
+                        # Begin lock screen
                         self.selected_lock = clicked
                         self.input_text = ""
                         self.start_time = pygame.time.get_ticks()
+
+
                 elif event.type == pygame.KEYDOWN and self.selected_lock:
                     if event.key == pygame.K_ESCAPE:
                         self.selected_lock = None
@@ -97,17 +109,10 @@ class GameUI:
                         self.input_text = self.input_text[:-1]
                     elif event.key == pygame.K_RETURN:
                         
-                        if self.input_text.strip() == self.selected_lock.lock_string.strip():
-                            end_time = pygame.time.get_ticks()
-                            self.wpm = calculate_wpm(self.start_time, end_time, len(self.input_text))
-
-                            if self.wpm >= self.selected_lock.wpm_target:
-                                self.network.send_break(self.selected_lock.lock_id, self.input_text, self.wpm)
-                                print(f"[CLIENT_BREAK_SENT] lock_id={self.selected_lock.lock_id}, wpm={self.wpm}")
-                            else:
-                                self.network.send_claim(self.selected_lock.lock_id)
-                                print(f"[CLIENT_CLAIM_SENT] lock_id={self.selected_lock.lock_id}, wpm={self.wpm}")
-
+                        end_time = pygame.time.get_ticks()
+                        self.wpm = calculate_wpm(self.start_time, end_time, len(self.input_text))
+                        self.network.send_break(self.selected_lock.lock_id, self.input_text, self.wpm)
                         self.selected_lock = None
+                        
                     else:
                         self.input_text += event.unicode
