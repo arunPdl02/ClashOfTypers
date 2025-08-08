@@ -96,6 +96,7 @@ while True:
                     msg_type = msg.get("type")
                     user_id = msg.get("user_id")
 
+                    print(msg)
                     # --- CLAIM LOCK ---
                     if msg_type == MSG_CLAIM_REQ:
                         lock_id = msg.get("lock_id")
@@ -118,32 +119,36 @@ while True:
 
                     # --- BREAK LOCK ---
                     elif msg_type == MSG_BREAK_REQ:
-                        lock_id = msg.get("lock_id")
-                        user_string = msg.get("user_string")
-                        user_wpm = msg.get("user_wpm")
+                        try:
+                            lock_id = msg.get("lock_id")
+                            user_string = msg.get("user_string")
+                            user_wpm = msg.get("user_wpm")
 
-                        #validate break attempt
-                        success, points = grid.break_lock(lock_id, user_string, user_wpm, user_id)
-                        lock = grid.get_lock(lock_id)
+                            success, points = grid.break_lock(lock_id, user_string, user_wpm, user_id)
+                            lock = grid.get_lock(lock_id)
 
-                        if success:
-                            players[user_id]["score"] += points
-                            players[user_id]["locks_broken"] += 1
+                            if success:
+                                players[user_id]["score"] += points
+                                players[user_id]["locks_broken"] += 1
 
-                        # private response to the player
-                        send(notified_socket,{
-                            "type": "break_result",
-                            "success": success,
-                            "points": points,
-                            "lock": lock.to_dict()
-                        })
+                            # send response to client
+                            send(notified_socket, {
+                                "type": "break_result",
+                                "success": success,
+                                "points": points,
+                                "lock": lock.to_dict()
+                            })
 
-                        #broadcast the updated grid and player info
-                        broadcast({
-                            "type": MSG_GRID_UPDATE,
-                            "grid": grid.to_dict(),
-                            "players": players
-                        })
+                            # broadcast updated grid + scores
+                            broadcast({
+                                "type": MSG_GRID_UPDATE,
+                                "grid": grid.to_dict(),
+                                "players": players
+                            })
+
+                        except Exception as e:
+                            print(f"[SERVER ERROR in BREAK_REQ] {e}")
+
 
             except Exception as e:
                 pid = clients.get(notified_socket, "Unknown")
