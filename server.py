@@ -62,41 +62,18 @@ while True:
         if notified_socket == server_socket: #new player connecting
             client_socket, client_address = server_socket.accept()
             sockets_list.append(client_socket)
-            player_id = f"Player{len(clients) + 1}"
-            clients[client_socket] = player_id
-            players[player_id] = {
-                "icon": "★",
-                "score": 0,
-                "locks_broken": 0
-            }
+            # Defer assigning a final id until we receive a join message
+            temp_id = f"Player{len(clients) + 1}"
+            clients[client_socket] = temp_id
             buffers[client_socket] = ""
 
-            print(f"[CONNECT] {player_id} from {client_address}")
+            print(f"[CONNECT] {temp_id} from {client_address}")
 
-            # Assign host if first player
+            # Assign host placeholder if first connection; will update once join arrives
             if host_id is None:
-                host_id = player_id
+                host_id = temp_id
 
-            # Send initial game state for compatibility
-            initial_payload = {
-                "type": MSG_GRID_UPDATE,
-                "grid": grid.to_dict(),
-                "players": players
-            }
-            send(client_socket, initial_payload)
-            try:
-                dbg_len = len((json.dumps(initial_payload) + '\n').encode('utf-8'))
-                print(f"[SERVER] Sent initial grid to {player_id} ({dbg_len} bytes)")
-            except Exception:
-                pass
-
-            # Broadcast lobby update
-            broadcast({
-                "type": MSG_LOBBY_UPDATE,
-                "players": players,
-                "host_id": host_id,
-                "game_started": game_started
-            })
+            # Do not broadcast or send grid yet; wait for join so names/icons are correct
 
         else: # message from exisiting connection (a update)
             try:
@@ -120,6 +97,50 @@ while True:
                     print(msg)
                     # Ignore gameplay messages until game start
                     if not game_started and msg_type in (MSG_CLAIM_REQ, MSG_BREAK_REQ, MSG_UNCLAIM_REQ):
+                        continue
+
+                    # --- JOIN/HELLO ---
+                    if msg_type == MSG_JOIN:
+                        # Use requested id if available; otherwise, generate unique
+                        requested_id = user_id or f"Player{len(players) + 1}"
+                        final_id = requested_id
+                        suffix = 2
+                        while final_id in players:
+                            final_id = f"{requested_id}_{suffix}"
+                            suffix += 1
+
+                        # Initialize player entry
+                        icon = msg.get("icon", "★")
+                        players[final_id] = {"icon": icon, "score": 0, "locks_broken": 0}
+
+                        # Map this socket to final id
+                        clients[notified_socket] = final_id
+
+                        # Assign host if none yet
+                        if host_id is None or host_id not in players:
+                            host_id = final_id
+
+                        # Send initial grid and players including their final id
+                        send(notified_socket, {
+                            "type": MSG_GRID_UPDATE,
+                            "grid": grid.to_dict(),
+                            "players": players,
+                            "your_id": final_id,
+                        })
+
+                        # Acknowledge join explicitly so client can rename locally
+                        send(notified_socket, {
+                            "type": MSG_JOIN_ACK,
+                            "user_id": final_id
+                        })
+
+                        # Broadcast lobby update with correct names
+                        broadcast({
+                            "type": MSG_LOBBY_UPDATE,
+                            "players": players,
+                            "host_id": host_id,
+                            "game_started": game_started
+                        })
                         continue
 
                     # --- CLAIM LOCK ---

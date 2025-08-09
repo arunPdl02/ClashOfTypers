@@ -11,6 +11,7 @@
 # def timer(): return time.time()
 import random
 import string
+import unicodedata
 import nltk
 import pygame
 from nltk.corpus import gutenberg
@@ -71,15 +72,14 @@ def _clean_join(words):
 
 # map level to difficulty string to access config vars
 def get_difficulty(level):
-    match level:
-        case 0:
-            return 'easy'
-        case 1:
-            return 'medium'
-        case 2:
-            return 'hard'
-        case _:
-            return None
+    if level == 0:
+        return 'easy'
+    elif level == 1:
+        return 'medium'
+    elif level == 2:
+        return 'hard'
+    else:
+        return None
         
 # calculate points based on sentence length and target wpm
 def calculate_points(length, wpm):
@@ -92,4 +92,62 @@ def countdown_timer(start_ticks, total_seconds):
     return max(0, total_seconds - elapsed)
 
 
+
+def normalize_text_for_match(text: str) -> str:
+    """
+    Normalize text for robust equality checks between user input and target strings.
+
+    This function harmonizes common user-visible variations so that visually identical
+    inputs are treated as equal:
+    - Unify curly quotes and backticks to straight quotes
+    - Unify en/em/minus dashes to hyphen-minus
+    - Remove zero-width characters
+    - Convert non-breaking/thin spaces to regular spaces
+    - Unicode normalize (NFKC)
+    - Standardize spacing characters to regular spaces and strip ends
+    """
+    if text is None:
+        return ""
+
+    # Replace various spacing characters with normal space
+    text = (
+        text
+        .replace("\u00A0", " ")  # NO-BREAK SPACE
+        .replace("\u2007", " ")  # FIGURE SPACE
+        .replace("\u202F", " ")  # NARROW NO-BREAK SPACE
+        .replace("\u2009", " ")  # THIN SPACE
+    )
+
+    # Remove zero-width and BOM characters
+    text = (
+        text
+        .replace("\u200B", "")   # ZERO WIDTH SPACE
+        .replace("\u200C", "")   # ZERO WIDTH NON-JOINER
+        .replace("\u200D", "")   # ZERO WIDTH JOINER
+        .replace("\u2060", "")   # WORD JOINER
+        .replace("\uFEFF", "")   # BOM
+    )
+
+    # Map curly quotes/backticks and typographic dashes to ASCII equivalents
+    translation_map = {
+        ord('‘'): "'",
+        ord('’'): "'",
+        ord('‚'): "'",
+        ord('‛'): "'",
+        ord('`'): "'",
+        ord('“'): '"',
+        ord('”'): '"',
+        ord('„'): '"',
+        ord('″'): '"',
+        ord('–'): "-",
+        ord('—'): "-",
+        ord('−'): "-",
+    }
+    text = text.translate(translation_map)
+
+    # Unicode normalization to compatibility decomposition/composition
+    text = unicodedata.normalize('NFKC', text)
+
+    # Trim edges
+    return text.strip()
 

@@ -29,7 +29,7 @@ import pygame
 from networking import ClientNetwork
 from game import Grid
 from game_ui import GameUI
-from messages import MSG_GRID_UPDATE
+from messages import MSG_GRID_UPDATE, MSG_JOIN_ACK
 from config import *
 
 # Allow overriding server IP/port via CLI
@@ -64,9 +64,10 @@ font = pygame.font.Font(None, 28)
 clock = pygame.time.Clock()
 
 init_packet = None
+ack = None
 frame_counter = 0
 running_conn = True
-while init_packet is None and running_conn:
+while (init_packet is None or ack is None) and running_conn:
     clock.tick(60)
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -81,7 +82,16 @@ while init_packet is None and running_conn:
     screen.blit(text, (20, 70))
     pygame.display.flip()
 
-    # Poll for initial grid packet
+    # Poll for join ack and initial grid packet
+    if ack is None:
+        ack = network.get_packet(MSG_JOIN_ACK)
+        if ack and ack.get("user_id"):
+            user_id = ack.get("user_id")
+            # Update networking layer so future messages use correct id
+            try:
+                network.user_id = user_id
+            except Exception:
+                pass
     init_packet = network.get_packet(MSG_GRID_UPDATE)
     frame_counter += 1
 

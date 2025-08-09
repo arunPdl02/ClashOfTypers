@@ -1,0 +1,107 @@
+Clash of Typers – Final Project Report
+Introduction
+Clash of Typers is a fast-paced multiplayer typing game designed to combine accuracy, speed, and strategic decision-making in an engaging competitive environment. Players compete to “break” locks on a shared grid by typing target sentences at or above a required Words Per Minute (WPM) threshold. The game runs on a modular client–server architecture that synchronizes game state in real time, supports a host-driven start mechanism, and operates on a global match timer to ensure intense and time-bound rounds.
+Purpose of the Game
+The primary objectives behind Clash of Typers are threefold. Firstly, it encourages improvement in typing speed and accuracy under time pressure. Secondly, it integrates elements of strategy by allowing players to choose difficulty levels and manage their limited time effectively. Finally, it fosters a social and competitive experience by presenting visible progress, leaderboards, and clear game outcomes.
+Team Members and Contributions
+The project was developed collaboratively by four members, each handling distinct components:
+Manan: Developed the Pygame-based user interface, including the heads-up display (HUD), overlays, and the core gameplay loop.
+
+
+Surya: Implemented the networking client, designed the application-layer message protocol, and integrated threading for responsiveness.
+
+
+Rushik: Built configuration and utility modules, including difficulty scaling, points calculation, and sentence generation systems.
+
+
+Arun: Developed WPM calculation utilities and designed the server framework, as well as the overarching game flow logic.
+
+
+Development Timeline
+The game evolved through several stages:
+Prototype Phase – Created a local single-player grid with lock and score logic alongside a basic UI.
+
+
+Protocol Definition – Established message types and newline-delimited JSON (NDJSON) framing for TCP communication.
+
+
+UI Polish – Added lobby functionality, countdown timers, tooltips, toast notifications, live WPM tracking, and an in-game HUD.
+
+
+Multiplayer Integration – Implemented host selection, synchronized game start, authoritative server state management, and broadcast updates for real-time synchronization.
+
+
+Game Description
+The core play area consists of a 5×5 grid containing color-coded locks that correspond to three difficulty tiers—easy, medium, and hard. Each lock is assigned a sentence, a WPM target, a point value, and an ownership or broken status. Players can claim available locks, type the sentence exactly as shown, and submit their attempt. A successful break requires meeting or exceeding the WPM target. Scores and lock statuses update live for all connected clients until either the match timer expires or all locks have been broken.
+Objective and Core Mechanics
+The main goal for each player is to maximize their score within the allotted time. Locks can only be claimed if they are unbroken and either unclaimed or currently owned by the same player. Accuracy is paramount; pressing Enter submits the typed sentence, and a player must meet or surpass the target WPM for that lock to be considered broken. The match is governed by a global timer, with a live leaderboard displayed in the HUD.
+Typing Challenge and Grid Design
+The server generates the grid at the start of the match. Each lock contains metadata such as its ID, difficulty, target sentence, WPM requirement, point value, grid position, and current state (claimed, broken, and owner). Sentences are sourced from the NLTK Gutenberg corpus, cleaned, and adjusted in length based on difficulty settings. Difficulty influences both WPM targets and sentence lengths, with these ranges defined in the configuration. On the client side, the lock screen provides the target text, per-character correctness feedback, a live WPM display, and a countdown of remaining time.
+Scoring and WPM Calculation
+Points are assigned based on both sentence length and WPM target—longer and more difficult sentences yield higher scores. WPM is calculated using the formula:
+WPM = (Characters/5​)/(minutes)
+The client computes live WPM during typing and transmits it upon submission. The server validates the attempt, updates scores, modifies lock states, and broadcasts the changes to all connected players.
+Multiplayer Gameplay Flow
+Upon connection, the server assigns each player an identifier (e.g., Player1) and sends the initial grid and player list. A lobby phase follows, where all players are displayed, and the designated host is granted control over the start. When the host initiates the game, the server sends a synchronized countdown and match duration to all clients.
+ During gameplay:
+Clients send requests to claim, break, or unclaim locks.
+
+
+The server validates each action, updates the authoritative state, and broadcasts updates.
+
+
+The game ends when the timer expires or all locks are broken, with final standings displayed to all players.
+
+
+System Architecture
+Overview
+The architecture is based on a TCP client–server model using NDJSON for message framing. The server operates in a single-threaded loop with select for multiplexing connections, maintaining the authoritative game grid, player metadata, and host state. Clients use persistent TCP sockets with a background listener thread to parse messages into a synchronized queue, ensuring the Pygame UI loop remains responsive.
+Modular Code Structure
+server.py – Connection handling, lobby/start control, authoritative grid/score state, broadcasting.
+
+
+networking.py – Client networking logic, threaded listener, send helpers, and message queue.
+
+
+game.py – Models for Lock and Grid with claim, unclaim, and break methods, plus serialization helpers.
+
+
+game_ui.py – Pygame interface for lobby, countdown, grid, tooltips, HUD, typing challenge, and end screen.
+
+
+wpm.py – WPM calculation utilities.
+
+
+utils.py – Sentence generation, difficulty mapping, points calculation, and countdown timers.
+
+
+config.py – Grid size, game time, WPM targets, length ranges, and color palette.
+
+
+messages.py – Constants for application-layer protocol message types.
+
+
+Application-Layer Messaging Scheme
+Communication between clients and the server is conducted through structured message types in JSON, delimited by newline characters for stream parsing.
+Client to Server: MSG_CLAIM_REQ, MSG_BREAK_REQ, MSG_UNCLAIM_REQ, MSG_START_REQ.
+
+
+Server to Client (Direct Response): MSG_CLAIM_RES, MSG_BREAK_RES, MSG_UNCLAIM_RES.
+
+
+Server Broadcasts: MSG_GRID_UPDATE, MSG_LOBBY_UPDATE, MSG_START_GAME.
+
+
+For example, when a client claims a lock, the server verifies its availability and ownership before sending a response and broadcasting an updated grid to all players.
+Socket Initialization
+Server-Side
+The server creates a TCP socket, enables SO_REUSEADDR, binds to 127.0.0.1:5555, and begins listening for connections. It uses select() to handle multiple clients efficiently without blocking.
+Client-Side
+The client creates a TCP socket, connects to the server, and starts a daemon listener thread to receive and parse NDJSON messages, which are queued for the UI thread to consume without interrupting rendering.
+Concurrency and Shared Objects
+The shared grid is managed authoritatively by the server. Actions such as claiming, breaking, or unclaiming locks are validated server-side. This ensures that two players cannot claim the same lock simultaneously, satisfying the concurrency requirement of the project. Clients update their local grids based on broadcast messages, ensuring all game views remain synchronized.
+Challenges and Design Evolution
+During development, transitioning from a single-player simulation to a real multiplayer environment required careful protocol design and synchronization logic. Separation between rendering (client) and game authority (server) was critical. The team refactored code to maintain clarity, extracted utility modules for reusability, and considered future enhancements such as server-side WPM validation to prevent cheating.
+Conclusion and Future Work
+Clash of Typers successfully meets the core objectives of the project by combining a competitive, real-time typing challenge with robust synchronization across multiple clients. While the game currently relies on client-reported WPM and full-grid broadcasts, future improvements could include server-side WPM calculation, partial updates for efficiency, persistent leaderboards, and additional visual or gameplay features. Despite these limitations, the project delivers a polished and functional multiplayer experience that aligns with the requirements of CMPT 371.
+

@@ -15,7 +15,7 @@
 #     def get_lock(self, lock_id): ...
 
 import random
-from utils import generate_strings, calculate_points, get_difficulty
+from utils import generate_strings, calculate_points, get_difficulty, normalize_text_for_match
 from config import LOCK_WPM as target_range
 
 # defines lock objects on the grid and helpers to access information
@@ -36,11 +36,13 @@ class Lock:
     
     # checks whether a claim can be made
     # upon success updates internal variables to mark lock as claimed by given user
-    def attempt_claim(self, user_id):
-        if self.is_claimable_by(user_id):
-            self.claimed_by_user = user_id
-            return True
-        return False
+    def attempt_claim(self, user):
+        success = False
+        
+        if self.available:
+            self.available = False  # Mark as claimed
+            success = True
+            self.user_id = user
 
     # checks whether a lock can be claimed
     # true if lock is not broken and has not been claimed by any other person
@@ -132,18 +134,6 @@ class Grid:
         
         return False
     
-    # release a claim on a lock if the same player requests it
-    def unclaim_lock(self, lock_id, player_id):
-        lock = self.get_lock(lock_id)
-        if not lock:
-            return False
-        
-        if not lock.broken and lock.claimed_by_user == player_id:
-            lock.claimed_by_user = None
-            return True
-        
-        return False
-    
     # attempts to break a lock and returns a boolean to indicate success along with the appropriate points to be received
     # modifies the lock in place to reflect the change if successful
     def break_lock(self, lock_id, user_string, user_wpm, player_id):
@@ -153,7 +143,10 @@ class Grid:
             return False, 0  # <-- Lock not found
 
         if not lock.broken and lock.claimed_by_user == player_id:
-            if user_string == lock.lock_string and user_wpm >= lock.wpm_target:
+            # Normalize both strings for robust equality
+            normalized_input = normalize_text_for_match(user_string)
+            normalized_target = normalize_text_for_match(lock.lock_string)
+            if normalized_input == normalized_target and user_wpm >= lock.wpm_target:
                 print("Lock Broken, points should be awarded")
                 lock.broken = True
                 lock.broken_by_user = player_id

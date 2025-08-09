@@ -14,6 +14,8 @@ MSG_MOUSE_COORDS = "mouse_coords"           # client sends mouse coordinates to 
 MSG_LOBBY_UPDATE = "lobby_update"           # server broadcasts player list and host
 MSG_START_REQ = "start_game_request"        # client requests game start (host only)
 MSG_START_GAME = "start_game"               # server announces synchronized game start
+MSG_JOIN = "join"                           # client announces desired user_id/icon on connect
+MSG_JOIN_ACK = "join_ack"                   # server acknowledges and returns the accepted user_id
 
 # Server result/ack types:
 MSG_CLAIM_RES = "claim_result"              # server response to claim request

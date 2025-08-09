@@ -7,7 +7,7 @@ A multiplayer typing game where players compete to break locks by typing strings
 - **Grid-based gameplay**: 5x5 grid of locks with different difficulties
 - **Typing challenges**: Each lock requires typing a specific string within a WPM target
 - **Real-time scoring**: Points awarded based on difficulty and WPM achieved
-- **Time-based**: 5-minute game timer with synchronized start
+- **Time-based**: 1.5-minute game timer with synchronized start
 
 ## 🛜 Multiplayer Status
 
@@ -24,7 +24,7 @@ git clone <repository-url>
 cd ClashOfTypers
 
 # Install dependencies
-pip install -r requirements.txt
+pip install pygame nltk
 
 # Download NLTK data (once)
 python -m nltk.downloader punkt gutenberg

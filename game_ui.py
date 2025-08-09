@@ -15,7 +15,7 @@ from messages import (
 )
 from game import Grid, Lock
 from config import *
-from utils import countdown_timer
+from utils import countdown_timer, normalize_text_for_match
 
 
 class GameUI:
@@ -91,6 +91,23 @@ class GameUI:
         self.tile_h = 80
         self.tile_gap = 12
         self.tile_aspect_ratio = 140 / 80
+
+    def _normalize_char_for_input(self, ch: str) -> str:
+        # Normalize single characters for consistent input and visual comparison
+        if not ch:
+            return ""
+        # Map common unicode variants to ASCII
+        translation_map = {
+            ord('‘'): "'", ord('’'): "'", ord('‚'): "'", ord('‛'): "'", ord('`'): "'",
+            ord('“'): '"', ord('”'): '"', ord('„'): '"', ord('″'): '"',
+            ord('–'): "-", ord('—'): "-", ord('−'): "-",
+            0x00A0: " ", 0x2007: " ", 0x202F: " ", 0x2009: " ",
+            0x200B: "", 0x200C: "", 0x200D: "", 0x2060: "", 0xFEFF: "",
+        }
+        return ch.translate(translation_map)
+
+    def _chars_equivalent(self, a: str, b: str) -> bool:
+        return self._normalize_char_for_input(a) == self._normalize_char_for_input(b)
 
     def _rebuild_overlays(self):
         size = self.screen.get_size()
@@ -546,9 +563,10 @@ class GameUI:
         # Input with blinking cursor + correctness coloring
         target = lock.lock_string
         input_text = self.input_text
+        # Compare with normalization to avoid false negatives on quotes/dashes/spaces
         correct_len = 0
         for a, b in zip(input_text, target):
-            if a == b:
+            if self._chars_equivalent(a, b):
                 correct_len += 1
             else:
                 break
@@ -889,9 +907,16 @@ class GameUI:
                         self._rebuild_overlays()
 
     def _render_end_screen(self):
-        # Simple end screen showing final scores
+        # Winner/loser end screen with final scores and tie handling
         done = False
         pulse = 0
+        # Determine winners based on top score
+        sorted_players = sorted(self.players.items(), key=lambda kv: kv[1]["score"], reverse=True)
+        winners = []
+        if sorted_players:
+            top_score = sorted_players[0][1]["score"]
+            winners = [pid for pid, pdata in self.players.items() if pdata["score"] == top_score]
+        user_won = self.user_id in winners
         while not done:
             self.clock.tick(60)
             for event in pygame.event.get():
@@ -904,15 +929,25 @@ class GameUI:
             self.screen.fill(GRID_COLORS.get("backdrop", (30, 30, 30)))
             self._draw_frame()
 
-            title_shadow = self.title_font.render("GAME OVER", True, (20, 20, 20))
-            title = self.title_font.render("GAME OVER", True, (226, 203, 156))
+            # Winner/loser banner
+            banner_text = "YOU WIN!" if user_won else "YOU LOSE"
+            banner_color = (120, 255, 120) if user_won else (255, 120, 120)
+            title_shadow = self.title_font.render(banner_text, True, (20, 20, 20))
+            title = self.title_font.render(banner_text, True, banner_color)
             tx = (width - title.get_width()) // 2
             self.screen.blit(title_shadow, (tx + 4, 136))
             self.screen.blit(title, (tx, 132))
 
+            # Winners line (ties supported)
+            if winners:
+                winners_label = "Winners: " + ", ".join(winners)
+                winners_surf = self.hud_font.render(winners_label, True, GRID_COLORS.get("hud_text", (226, 203, 156)))
+                wx = (width - winners_surf.get_width()) // 2
+                self.screen.blit(winners_surf, (wx, 200))
+
             # Scores panel
             panel_w = min(600, width - 200)
-            panel = pygame.Rect((width - panel_w) // 2, 240, panel_w, 180)
+            panel = pygame.Rect((width - panel_w) // 2, 240, panel_w, 220)
             pygame.draw.rect(self.screen, (20, 20, 20), panel)
             pygame.draw.rect(self.screen, (143, 19, 19), panel, 2)
             sorted_players = sorted(self.players.items(), key=lambda kv: kv[1]["score"], reverse=True)

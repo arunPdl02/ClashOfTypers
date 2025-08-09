@@ -88,6 +88,7 @@ import threading
 import json
 from collections import deque
 from messages import *
+from utils import normalize_text_for_match
 
 
 # using TCP
@@ -107,6 +108,11 @@ class ClientNetwork:
             print(f"[networking] Connecting to {self.addr}")
             self.sock.connect(self.addr)
             threading.Thread(target=self._listen, daemon=True).start()
+            # Introduce ourselves with desired id/icon so server can align names
+            try:
+                self._send(MSG_JOIN)
+            except Exception:
+                pass
         except Exception as e:
             print(f"[networking] Connection failed: {e}")
             raise SystemExit("Could not connect to server.")
@@ -161,13 +167,18 @@ class ClientNetwork:
     
     # should be modified to send start time, stop time and number of char inputs for server side wpm verification
     def send_break(self, lock_id, user_string, user_wpm):
-        self._send(MSG_BREAK_REQ, lock_id=lock_id, user_string=user_string, user_wpm=user_wpm)
+        # Normalize before sending to reduce mismatches end-to-end
+        safe_string = normalize_text_for_match(user_string)
+        self._send(MSG_BREAK_REQ, lock_id=lock_id, user_string=safe_string, user_wpm=user_wpm)
 
     def send_unclaim(self, lock_id):
         self._send(MSG_UNCLAIM_REQ, lock_id=lock_id)
 
     def send_start_game(self):
         self._send(MSG_START_REQ)
+    
+    def send_join(self, icon="★"):
+        self._send(MSG_JOIN, icon=icon)
 
     def get_packet(self, msg_type):
         # Scan the queue without losing order; return the first matching packet
