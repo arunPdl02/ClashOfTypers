@@ -3,10 +3,6 @@
 # Stores game constants: grid size, score ranges, WPM targets, etc.
 # Author: Rushik + All (fine-tune)
 
-# 1. Grid size
-# 2. Score and WPM ranges
-# 3. Lock color mapping
-
 GRID_ROWS = 5 
 GRID_COLS = 5
 CELL_SIZE = 100

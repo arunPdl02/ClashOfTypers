@@ -9,21 +9,6 @@
 # 4. Show typing challenge on lock granted
 # 5. Update grid + scoreboard based on server messages
 
-# Main loop:
-#     receive messages
-#     render grid
-#     send unlock results after typing
-
-# Cient-server:
-# send message to server to claim lock
-# process server message
-# if success lock screen start
-# or display claim fail screen
-# server should send updated grid (lock not available) to all clients
-
-# client_main.py
-# Clean version of client.py integrated with networking
-# client_main.py
 import sys
 import pygame
 from networking import ClientNetwork
