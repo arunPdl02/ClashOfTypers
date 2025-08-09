@@ -24,7 +24,7 @@ git clone <repository-url>
 cd ClashOfTypers
 
 # Install dependencies
-pip install pygame nltk
+pip install -r requirements.txt
 
 # Download NLTK data (once)
 python -m nltk.downloader punkt gutenberg
